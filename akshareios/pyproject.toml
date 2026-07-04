@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "akshareios"
-version = "0.1.0"
+version = "0.2.0"
 description = "AKShare 轻量 iOS 版 —— 纯 Python 实现，无 pandas/numpy/lxml 依赖"
 readme = "README.md"
 authors = [

@@ -8,12 +8,16 @@
 from akshareios._http import get
 
 
+_MAX_KLINE_ROWS = 250
+
+
 def stock_zh_a_hist(
     symbol: str = "000001",
     period: str = "daily",
     start_date: str = "19700101",
     end_date: str = "20500101",
     adjust: str = "",
+    limit: int | None = 120,
     timeout: float = 15,
 ) -> list[dict]:
     """
@@ -24,6 +28,7 @@ def stock_zh_a_hist(
     :param start_date: 开始日期，格式 "20240101"
     :param end_date: 结束日期，格式 "20241231"
     :param adjust: 复权类型，"qfq"=前复权, "hfq"=后复权, ""=不复权
+    :param limit: 最多返回条数，默认 120；传 None 不限制（最大 250）；按时间正序截断尾部
     :param timeout: 请求超时时间（秒）
     :return: [{"日期": "2024-01-02", "开盘": 10.5, "收盘": 10.8, ...}, ...]
     """
@@ -68,6 +73,13 @@ def stock_zh_a_hist(
             "涨跌额": _to_float(fields[9]),
             "换手率": _to_float(fields[10]),
         })
+
+    if limit is None:
+        if len(results) > _MAX_KLINE_ROWS:
+            results = results[-_MAX_KLINE_ROWS:]
+    elif limit > 0 and len(results) > limit:
+        cap = min(limit, _MAX_KLINE_ROWS)
+        results = results[-cap:]
 
     return results
 

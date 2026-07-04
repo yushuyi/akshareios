@@ -21,28 +21,43 @@ pip install https://github.com/yushuyi/akshareios/archive/refs/heads/main.zip
 ```python
 import akshareios as ak
 
-# 获取全部 A 股代码和名称
-stocks = ak.stock_info_a_code_name()
-# [{"code": "000001", "name": "平安银行"}, {"code": "000002", "name": "万科A"}, ...]
+# 分页获取 A 股代码和名称（默认每页 20 条，最大 100 条）
+page1 = ak.stock_info_a_code_name(page=1, page_size=20)
+# {"items": [{"code": "000001", "name": "平安银行"}, ...], "page": 1, "total": 5123, "has_more": true}
 
-# 获取个股历史 K 线
-klines = ak.stock_zh_a_hist(symbol="600519", period="daily")
-# [{"日期": "2024-01-02", "开盘": 1688.0, "收盘": 1700.0, ...}, ...]
+# 获取个股历史 K 线（默认最多 120 根）
+klines = ak.stock_zh_a_hist(symbol="600519", period="daily", limit=60)
 
-# 获取全市场实时行情
-spot = ak.stock_zh_a_spot_em()
-# [{"代码": "000001", "名称": "平安银行", "最新价": 12.5, ...}, ...]
+# 分页获取实时行情（默认按涨跌幅排序）
+spot = ak.stock_zh_a_spot_em(page=1, page_size=20, sort_by="f3")
 
-# 获取个股详细信息
+# 获取个股详细信息（单只股票，无需分页）
 info = ak.stock_individual_info_em(symbol="600519")
-# {"股票代码": "600519", "股票简称": "贵州茅台", "总市值": ..., ...}
 ```
+
+## 分页约定
+
+列表类接口（`stock_info_a_code_name`、`stock_zh_a_spot_em`）**不再一次性拉全市场**，统一返回：
+
+```python
+{
+    "items": [...],       # 当前页数据
+    "page": 1,            # 当前页码（从 1 开始）
+    "page_size": 20,      # 本页条数
+    "total": 5123,        # 全市场总数
+    "total_pages": 257,   # 总页数
+    "has_more": True      # 是否还有下一页
+}
+```
+
+- `page_size` 默认 **20**，硬上限 **100**
+- 需要下一页时传 `page=2, page_size=20`，依此类推
 
 ## 与 AKShare 的区别
 
 | 特性 | AKShare | akshareios |
 |------|---------|------------|
-| 返回类型 | pandas.DataFrame | list[dict] |
+| 返回类型 | pandas.DataFrame | list[dict] / 分页 dict |
 | 依赖 | pandas + numpy + lxml + ... | 仅 requests |
 | iOS 兼容 | ❌ | ✅ |
 | 接口数量 | 1000+ | 核心精选 |
@@ -51,7 +66,6 @@ info = ak.stock_individual_info_em(symbol="600519")
 ## 数据源
 
 - 东方财富（EastMoney）：股票列表、K 线、实时行情、个股信息
-- 后续扩展：基金、期货、宏观经济等
 
 ## License
 

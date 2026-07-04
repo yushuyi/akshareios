@@ -6,44 +6,50 @@
 """
 
 from akshareios._http import get_push2_clist
+from akshareios._pagination import (
+    DEFAULT_PAGE_SIZE,
+    clamp_page,
+    clamp_page_size,
+    make_page_result,
+)
 
 
-def stock_info_a_code_name(timeout: float = 15) -> list[dict]:
+def stock_info_a_code_name(
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    timeout: float = 15,
+) -> dict:
     """
-    获取沪深京全部 A 股的代码和名称列表。
+    获取沪深京 A 股代码和名称列表（分页）。
 
+    :param page: 页码，从 1 开始
+    :param page_size: 每页条数，默认 20，最大 100
     :param timeout: 请求超时时间（秒）
-    :return: [{"code": "000001", "name": "平安银行"}, ...]
+    :return: {"items": [{"code": "000001", "name": "平安银行"}, ...], "page": 1, ...}
     """
-    all_stocks = []
-    page = 1
+    page = clamp_page(page)
+    page_size = clamp_page_size(page_size)
 
-    while True:
-        params = {
-            "pn": str(page),
-            "pz": "5000",
-            "po": "1",
-            "np": "1",
-            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-            "fltt": "2",
-            "invt": "2",
-            "fid": "f3",
-            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
-            "fields": "f12,f14",
-        }
-        data = get_push2_clist(params, timeout=timeout)
-        data_body = data.get("data", {})
-        diff = data_body.get("diff", [])
-        if not diff:
-            break
+    params = {
+        "pn": str(page),
+        "pz": str(page_size),
+        "po": "1",
+        "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2",
+        "invt": "2",
+        "fid": "f12",
+        "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
+        "fields": "f12,f14",
+    }
+    data = get_push2_clist(params, timeout=timeout)
+    data_body = data.get("data", {})
+    diff = data_body.get("diff", [])
+    total = int(data_body.get("total", 0) or 0)
 
-        for item in diff:
-            if "f12" in item:
-                all_stocks.append({"code": item["f12"], "name": item["f14"]})
+    items = []
+    for item in diff:
+        if "f12" in item:
+            items.append({"code": item["f12"], "name": item["f14"]})
 
-        total = data_body.get("total", 0)
-        if len(all_stocks) >= total:
-            break
-        page += 1
-
-    return all_stocks
+    return make_page_result(items, page=page, page_size=page_size, total=total)

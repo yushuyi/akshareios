@@ -6,6 +6,12 @@
 """
 
 from akshareios._http import get_push2_clist
+from akshareios._pagination import (
+    DEFAULT_PAGE_SIZE,
+    clamp_page,
+    clamp_page_size,
+    make_page_result,
+)
 
 _FIELD_MAP = {
     "f2": "最新价",
@@ -28,48 +34,54 @@ _FIELD_MAP = {
     "f23": "市净率",
 }
 
+# 常用排序字段：f3=涨跌幅, f12=代码, f14=名称, f6=成交额
+_SORT_FIELDS = frozenset({"f3", "f12", "f14", "f6", "f20"})
 
-def stock_zh_a_spot_em(timeout: float = 20) -> list[dict]:
+
+def stock_zh_a_spot_em(
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    sort_by: str = "f3",
+    timeout: float = 20,
+) -> dict:
     """
-    东方财富网-沪深京 A 股-实时行情（全市场快照）
+    东方财富网-沪深京 A 股-实时行情（分页快照）
 
+    :param page: 页码，从 1 开始
+    :param page_size: 每页条数，默认 20，最大 100
+    :param sort_by: 排序字段，常用 f3（涨跌幅）、f12（代码）、f6（成交额）
     :param timeout: 请求超时时间（秒）
-    :return: [{"代码": "000001", "名称": "平安银行", "最新价": 12.5, ...}, ...]
+    :return: {"items": [...], "page": 1, "page_size": 20, "total": 5123, "total_pages": 257, "has_more": true}
     """
-    all_data = []
-    page = 1
+    page = clamp_page(page)
+    page_size = clamp_page_size(page_size)
+    fid = sort_by if sort_by in _SORT_FIELDS else "f3"
 
-    while True:
-        params = {
-            "pn": str(page),
-            "pz": "5000",
-            "po": "1",
-            "np": "1",
-            "ut": "bd1d9ddb04089700cf9c27f6f7426281",
-            "fltt": "2",
-            "invt": "2",
-            "fid": "f12",
-            "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
-            "fields": ",".join(_FIELD_MAP.keys()),
-        }
-        data_json = get_push2_clist(params, timeout=timeout)
-        data_body = data_json.get("data", {})
-        diff = data_body.get("diff", [])
-        if not diff:
-            break
+    params = {
+        "pn": str(page),
+        "pz": str(page_size),
+        "po": "1",
+        "np": "1",
+        "ut": "bd1d9ddb04089700cf9c27f6f7426281",
+        "fltt": "2",
+        "invt": "2",
+        "fid": fid,
+        "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048",
+        "fields": ",".join(_FIELD_MAP.keys()),
+    }
+    data_json = get_push2_clist(params, timeout=timeout)
+    data_body = data_json.get("data", {})
+    diff = data_body.get("diff", [])
+    total = int(data_body.get("total", 0) or 0)
 
-        for item in diff:
-            record = {}
-            for field_key, field_name in _FIELD_MAP.items():
-                val = item.get(field_key)
-                if val == "-":
-                    val = None
-                record[field_name] = val
-            all_data.append(record)
+    items = []
+    for item in diff:
+        record = {}
+        for field_key, field_name in _FIELD_MAP.items():
+            val = item.get(field_key)
+            if val == "-":
+                val = None
+            record[field_name] = val
+        items.append(record)
 
-        total = data_body.get("total", 0)
-        if len(all_data) >= total:
-            break
-        page += 1
-
-    return all_data
+    return make_page_result(items, page=page, page_size=page_size, total=total)
