@@ -1,10 +1,11 @@
 """
 个股详细信息
 
-数据源：东方财富 push2 API
-原版参考：akshare/stock/stock_info_em.py → stock_individual_info_em()
+主数据源：东方财富 push2；失败时降级新浪 hq.sinajs.cn 实时报价。
 """
 
+from akshareios._fallback import call_with_fallback
+from akshareios._fallback_sina import sina_individual_quote
 from akshareios._http import get
 
 _FIELD_MAP = {
@@ -36,13 +37,15 @@ def stock_individual_info_em(
     symbol: str = "603777",
     timeout: float = 15,
 ) -> dict:
-    """
-    东方财富-个股-股票信息
+    """个股信息；东财失败时返回新浪实时报价（字段较少）。"""
+    return call_with_fallback(
+        lambda: _info_em(symbol, timeout=timeout),
+        lambda: sina_individual_quote(symbol, timeout=timeout),
+        retry_on_empty=True,
+    )
 
-    :param symbol: 股票代码，如 "600519"
-    :param timeout: 请求超时时间（秒）
-    :return: {"股票代码": "600519", "股票简称": "贵州茅台", "总市值": ..., ...}
-    """
+
+def _info_em(symbol: str, *, timeout: float) -> dict:
     market_code = 1 if symbol.startswith("6") else 0
     url = "https://push2.eastmoney.com/api/qt/stock/get"
     params = {
@@ -53,9 +56,7 @@ def stock_individual_info_em(
     }
     r = get(url, params=params, timeout=timeout)
     r.raise_for_status()
-    data_json = r.json()
-
-    data = data_json.get("data")
+    data = r.json().get("data")
     if not data:
         return {}
 
@@ -65,5 +66,4 @@ def stock_individual_info_em(
         if val == "-":
             val = None
         result[field_name] = val
-
     return result

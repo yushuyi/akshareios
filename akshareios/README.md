@@ -31,6 +31,18 @@ klines = ak.stock_zh_a_hist(symbol="600519", period="daily", limit=60)
 # 分页获取实时行情（默认按涨跌幅排序）
 spot = ak.stock_zh_a_spot_em(page=1, page_size=20, sort_by="f3")
 
+# 分钟 K 线 / 分时（默认最多 120 根）
+mins = ak.stock_zh_a_hist_min_em(symbol="600519", period="5", limit=60)
+
+# 指数 K 线
+idx = ak.index_zh_a_hist(symbol="000001", start_date="20250101", end_date="20250701", limit=60)
+
+# 行业板块（分页）
+boards = ak.stock_board_industry_name_em(page=1, page_size=20)
+
+# 涨停股池（分页；非交易日可能为空）
+zt = ak.stock_zt_pool_em(page=1, page_size=20)
+
 # 获取个股详细信息（单只股票，无需分页）
 info = ak.stock_individual_info_em(symbol="600519")
 ```

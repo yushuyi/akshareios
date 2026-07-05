@@ -1,10 +1,11 @@
 """
 沪深京 A 股代码名称列表
 
-数据源：东方财富 push2 API
-原版参考：akshare/stock_feature/stock_hist_em.py → stock_zh_a_spot_em() 的股票列表部分
+主数据源：东方财富 push2 clist；失败时降级新浪分页列表。
 """
 
+from akshareios._fallback import call_with_fallback
+from akshareios._fallback_sina import sina_code_name_page
 from akshareios._http import get_push2_clist
 from akshareios._pagination import (
     DEFAULT_PAGE_SIZE,
@@ -19,17 +20,22 @@ def stock_info_a_code_name(
     page_size: int = DEFAULT_PAGE_SIZE,
     timeout: float = 15,
 ) -> dict:
-    """
-    获取沪深京 A 股代码和名称列表（分页）。
-
-    :param page: 页码，从 1 开始
-    :param page_size: 每页条数，默认 20，最大 100
-    :param timeout: 请求超时时间（秒）
-    :return: {"items": [{"code": "000001", "name": "平安银行"}, ...], "page": 1, ...}
-    """
+    """股票代码名称分页；东财失败时降级新浪。"""
     page = clamp_page(page)
     page_size = clamp_page_size(page_size)
 
+    return call_with_fallback(
+        lambda: _list_em(page=page, page_size=page_size, timeout=timeout),
+        lambda: sina_code_name_page(page=page, page_size=page_size, timeout=timeout),
+    )
+
+
+def _list_em(
+    *,
+    page: int,
+    page_size: int,
+    timeout: float,
+) -> dict:
     params = {
         "pn": str(page),
         "pz": str(page_size),
@@ -45,8 +51,10 @@ def stock_info_a_code_name(
     data = get_push2_clist(params, timeout=timeout)
     data_body = data.get("data", {})
     diff = data_body.get("diff", [])
-    total = int(data_body.get("total", 0) or 0)
+    if not diff:
+        return make_page_result([], page=page, page_size=page_size, total=0)
 
+    total = int(data_body.get("total", 0) or 0)
     items = []
     for item in diff:
         if "f12" in item:

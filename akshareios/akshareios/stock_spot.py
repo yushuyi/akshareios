@@ -1,10 +1,11 @@
 """
 沪深京 A 股实时行情快照
 
-数据源：东方财富 push2 API
-原版参考：akshare/stock_feature/stock_hist_em.py → stock_zh_a_spot_em()
+主数据源：东方财富 push2 clist；失败时降级腾讯涨幅榜。
 """
 
+from akshareios._fallback import call_with_fallback
+from akshareios._fallback_tx import tx_spot_page
 from akshareios._http import get_push2_clist
 from akshareios._pagination import (
     DEFAULT_PAGE_SIZE,
@@ -34,7 +35,6 @@ _FIELD_MAP = {
     "f23": "市净率",
 }
 
-# 常用排序字段：f3=涨跌幅, f12=代码, f14=名称, f6=成交额
 _SORT_FIELDS = frozenset({"f3", "f12", "f14", "f6", "f20"})
 
 
@@ -44,19 +44,24 @@ def stock_zh_a_spot_em(
     sort_by: str = "f3",
     timeout: float = 20,
 ) -> dict:
-    """
-    东方财富网-沪深京 A 股-实时行情（分页快照）
-
-    :param page: 页码，从 1 开始
-    :param page_size: 每页条数，默认 20，最大 100
-    :param sort_by: 排序字段，常用 f3（涨跌幅）、f12（代码）、f6（成交额）
-    :param timeout: 请求超时时间（秒）
-    :return: {"items": [...], "page": 1, "page_size": 20, "total": 5123, "total_pages": 257, "has_more": true}
-    """
+    """实时行情分页；东财 clist 失败时降级腾讯排行榜。"""
     page = clamp_page(page)
     page_size = clamp_page_size(page_size)
-    fid = sort_by if sort_by in _SORT_FIELDS else "f3"
 
+    return call_with_fallback(
+        lambda: _spot_em(page=page, page_size=page_size, sort_by=sort_by, timeout=timeout),
+        lambda: tx_spot_page(page=page, page_size=page_size, timeout=timeout),
+    )
+
+
+def _spot_em(
+    *,
+    page: int,
+    page_size: int,
+    sort_by: str,
+    timeout: float,
+) -> dict:
+    fid = sort_by if sort_by in _SORT_FIELDS else "f3"
     params = {
         "pn": str(page),
         "pz": str(page_size),
@@ -72,8 +77,10 @@ def stock_zh_a_spot_em(
     data_json = get_push2_clist(params, timeout=timeout)
     data_body = data_json.get("data", {})
     diff = data_body.get("diff", [])
-    total = int(data_body.get("total", 0) or 0)
+    if not diff:
+        return make_page_result([], page=page, page_size=page_size, total=0)
 
+    total = int(data_body.get("total", 0) or 0)
     items = []
     for item in diff:
         record = {}
