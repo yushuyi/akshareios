@@ -5,7 +5,7 @@ akshareios - AKShare 轻量 iOS 版
 仅依赖 requests，适用于 iOS 内嵌 Python 等无法编译 C 扩展的环境。
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 from akshareios.stock_list import stock_info_a_code_name
 from akshareios.stock_hist import stock_zh_a_hist

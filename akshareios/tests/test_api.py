@@ -11,7 +11,7 @@ def _ok(name: str) -> None:
 
 
 def test_version() -> None:
-    assert ak.__version__ == "0.4.0"
+    assert ak.__version__ == "0.4.1"
     _ok(f"version {ak.__version__}")
 
 

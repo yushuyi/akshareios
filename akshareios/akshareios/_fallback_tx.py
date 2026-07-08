@@ -9,7 +9,7 @@ from datetime import datetime
 
 import requests
 
-from akshareios._convert import apply_row_limit, to_float, to_int
+from akshareios._convert import apply_row_limit, deduplicate_rows_by_date, to_float, to_int
 from akshareios._http import _EM_HEADERS
 from akshareios._pagination import make_page_result
 from akshareios._symbols import is_index_code, to_market_symbol
@@ -80,6 +80,7 @@ def tx_daily_hist(
             })
 
     rows.sort(key=lambda x: x["日期"])
+    rows = deduplicate_rows_by_date(rows)
     return apply_row_limit(rows, limit)
 
 

@@ -4,7 +4,7 @@
 主数据源：东方财富 push2his；失败时降级腾讯日 K。
 """
 
-from akshareios._convert import apply_row_limit, to_float, to_int
+from akshareios._convert import apply_row_limit, deduplicate_rows_by_date, to_float, to_int
 from akshareios._fallback import call_with_fallback
 from akshareios._fallback_tx import tx_daily_hist
 from akshareios._http import get
@@ -96,6 +96,7 @@ def _hist_em(
             "涨跌额": to_float(fields[9]),
             "换手率": to_float(fields[10]),
         })
+    results = deduplicate_rows_by_date(results)
     return apply_row_limit(results, limit)
 
 
