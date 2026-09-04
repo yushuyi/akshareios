@@ -5,7 +5,7 @@
 原版参考：akshare/stock_feature/stock_yjbb_em.py → stock_yjbb_em()
 """
 
-from akshareios._convert import to_float
+from akshareios._convert import ensure_symbol, to_float
 from akshareios._datacenter import get_report
 
 _FIELDS = {
@@ -27,8 +27,9 @@ def stock_yjbb_em(symbol: str = "000001", timeout: float = 15) -> list[dict]:
     个股业绩报表历史（按报告期倒序，涵盖年报/中报/季报）
 
     :param symbol: 6 位代码
-    :return: list[dict]，首条即最近报告期；报告单位：元
+    :return: list[dict]，首条即最近报告期（最多返回最近 12 期）；报告单位：元
     """
+    symbol = ensure_symbol(symbol)
     rows = get_report(
         "RPT_LICO_FN_CPD",
         filter=f'(SECURITY_CODE="{symbol}")',

@@ -5,7 +5,7 @@
 原版参考：akshare/stock_feature/stock_gdhs.py、akshare/stock_feature/stock_gdfx_em.py
 """
 
-from akshareios._convert import to_float, to_int
+from akshareios._convert import ensure_symbol, to_float, to_int
 from akshareios._datacenter import DC_F10_URL, get_report, to_secucode
 
 
@@ -16,6 +16,7 @@ def stock_holder_num_em(symbol: str = "000001", timeout: float = 15) -> list[dic
     :param symbol: 6 位代码
     :return: list[dict]，首条即最新一期
     """
+    symbol = ensure_symbol(symbol)
     rows = get_report(
         "RPT_HOLDERNUM_DET",
         filter=f'(SECURITY_CODE="{symbol}")',
@@ -45,6 +46,7 @@ def stock_gdfx_free_top_10_em(symbol: str = "000001", timeout: float = 15) -> li
     :param symbol: 6 位代码
     :return: list[dict]，按持股排名 1-10
     """
+    symbol = ensure_symbol(symbol)
     rows = get_report(
         "RPT_F10_EH_FREEHOLDERS",
         filter=f'(SECUCODE="{to_secucode(symbol)}")',
@@ -64,8 +66,12 @@ def stock_gdfx_free_top_10_em(symbol: str = "000001", timeout: float = 15) -> li
             "持股数量": to_int(row.get("HOLD_NUM")),
             "持股市值": to_float(row.get("HOLDER_MARKET_CAP")),
             "持股比例": to_float(row.get("FREE_HOLDNUM_RATIO")),
-            "增减": to_int(row.get("HOLD_CHANGE")),
+            "增减": row.get("HOLD_CHANGE"),
             "增减比例": to_float(row.get("HOLD_CHANGE_RATIOTB")),
             "股东性质": row.get("HOLDER_TYPE"),
         })
+    if results:
+        # 服务端在最新一期不足 10 名时会用上一期行补满，按最大期末日期过滤
+        latest = max(r["期末日期"] for r in results)
+        results = [r for r in results if r["期末日期"] == latest]
     return results

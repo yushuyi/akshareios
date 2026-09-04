@@ -16,9 +16,9 @@ CONT_API = "https://np-cnotice-stock.eastmoney.com/api/content/ann"
 
 def list_ann(code, size=10, kw=None):
     r = requests.get(LIST_API, params={
-        "sr": -1, "page_size": size, "page_index": 1,
+        "sr": -1, "page_size": 100 if kw else size, "page_index": 1,
         "ann_type": "A", "stock_list": code}, timeout=15)
-    items = r.json().get("data", {}).get("list", [])
+    items = (r.json().get("data") or {}).get("list") or []
     out = []
     for it in items:
         title = it.get("title_ch") or it.get("title", "")
@@ -26,7 +26,7 @@ def list_ann(code, size=10, kw=None):
             continue
         out.append({"date": (it.get("notice_date") or "")[:10],
                     "art_code": it.get("art_code"), "title": title})
-    return out
+    return out[:size]
 
 def read_ann(art_code, code):
     r = requests.get(CONT_API, params={
@@ -38,7 +38,7 @@ def read_ann(art_code, code):
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     kw_i = sys.argv.index("--kw") if "--kw" in sys.argv else -1
-    kw = sys.argv[kw_i + 1] if kw_i >= 0 else None
+    kw = sys.argv[kw_i + 1] if 0 <= kw_i < len(sys.argv) - 1 else None
     code = args[0] if args else "600519"
     if "--read" in sys.argv:
         art = sys.argv[sys.argv.index("--read") + 1]

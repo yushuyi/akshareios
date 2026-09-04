@@ -11,7 +11,7 @@ def _ok(name: str) -> None:
 
 
 def test_version() -> None:
-    assert ak.__version__ == "0.5.0"
+    assert ak.__version__ == "0.5.1"
     _ok(f"version {ak.__version__}")
 
 
@@ -91,6 +91,8 @@ def test_new_v05_apis() -> None:
 
     gdfx = ak.stock_gdfx_free_top_10_em(symbol="600519")
     assert gdfx and "股东名称" in gdfx[0]
+    # HOLD_CHANGE 是中文枚举字符串（不变/增持/减持/新进），不得被 to_int 转成 None
+    assert isinstance(gdfx[0]["增减"], str)
     _ok(f"十大流通股东 {len(gdfx)}名")
 
     yjbb = ak.stock_yjbb_em(symbol="600519")

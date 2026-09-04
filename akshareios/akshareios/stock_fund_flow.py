@@ -5,7 +5,7 @@
 原版参考：akshare/stock/stock_fund_em.py → stock_individual_fund_flow()
 """
 
-from akshareios._convert import apply_row_limit, to_float
+from akshareios._convert import apply_row_limit, ensure_symbol, to_float
 from akshareios._http import get
 
 _FIELDS = [
@@ -23,9 +23,12 @@ def stock_individual_fund_flow(
     个股资金流历史（日线，按时间正序）
 
     :param symbol: 6 位代码
-    :param limit: 最多返回条数，默认 120，上限 250；None 拉全量后仍截断至 250
+    :param limit: 最多返回条数，默认 120，上限 250；None 或 ≤0 视为全量后截断至 250
     :return: list[dict]，金额单位元、占比单位 %；最新一天即当日实时（盘中会刷新）
     """
+    symbol = ensure_symbol(symbol)
+    if limit is not None and limit <= 0:
+        limit = None  # 归一化 ≤0 为全量语义，统一走 250 截断，避免 lmt 负数下发
     market_code = 1 if symbol.startswith("6") else 0
     url = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
     params = {

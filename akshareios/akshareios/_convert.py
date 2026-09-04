@@ -1,6 +1,16 @@
 """数值转换与行数限制工具。"""
 
+import re
+
 MAX_KLINE_ROWS = 250
+
+
+def ensure_symbol(symbol) -> str:
+    """校验 6 位股票代码，非法时抛 ValueError（对齐 stock_hist 对非法 period 的处理）。"""
+    symbol = str(symbol or "").strip()
+    if not re.fullmatch(r"\d{6}", symbol):
+        raise ValueError(f"无效的股票代码: {symbol!r}，需 6 位数字，如 600519")
+    return symbol
 
 
 def to_float(value) -> float | None:
