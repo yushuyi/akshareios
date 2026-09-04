@@ -45,6 +45,18 @@ zt = ak.stock_zt_pool_em(page=1, page_size=20)
 
 # 获取个股详细信息（单只股票，无需分页）
 info = ak.stock_individual_info_em(symbol="600519")
+
+# 股东户数趋势（首条即最新一期）
+gdhs = ak.stock_holder_num_em(symbol="600519")
+
+# 十大流通股东（最新一期）
+gdfx = ak.stock_gdfx_free_top_10_em(symbol="600519")
+
+# 业绩报表（营收/净利/同比/毛利率/ROE，按报告期倒序）
+yjbb = ak.stock_yjbb_em(symbol="600519")
+
+# 个股资金流历史（主力/超大单净流入，默认 120 天）
+fund = ak.stock_individual_fund_flow(symbol="600519", limit=60)
 ```
 
 ## 分页约定
@@ -77,7 +89,7 @@ info = ak.stock_individual_info_em(symbol="600519")
 
 ## 数据源
 
-- 东方财富（EastMoney）：股票列表、K 线、实时行情、个股信息
+- 东方财富（EastMoney）：股票列表、K 线、实时行情、个股信息、股东数据、业绩报表、资金流向
 
 ## License
 

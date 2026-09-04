@@ -11,7 +11,7 @@ def _ok(name: str) -> None:
 
 
 def test_version() -> None:
-    assert ak.__version__ == "0.4.1"
+    assert ak.__version__ == "0.5.0"
     _ok(f"version {ak.__version__}")
 
 
@@ -84,6 +84,24 @@ def test_existing_apis() -> None:
     _ok(f"列表 items={len(lst['items'])}")
 
 
+def test_new_v05_apis() -> None:
+    gdhs = ak.stock_holder_num_em(symbol="600519")
+    assert gdhs and "股东户数" in gdhs[0] and gdhs[0]["股东户数"] > 0
+    _ok(f"股东户数 {len(gdhs)}期 最新={gdhs[0]['股东户数']}")
+
+    gdfx = ak.stock_gdfx_free_top_10_em(symbol="600519")
+    assert gdfx and "股东名称" in gdfx[0]
+    _ok(f"十大流通股东 {len(gdfx)}名")
+
+    yjbb = ak.stock_yjbb_em(symbol="600519")
+    assert yjbb and "营收" in yjbb[0]
+    _ok(f"业绩报表 {len(yjbb)}期 最新={yjbb[0]['报告期']}")
+
+    fund = ak.stock_individual_fund_flow(symbol="600519", limit=5)
+    assert fund and "主力净流入额" in fund[-1]
+    _ok(f"资金流 rows={len(fund)}")
+
+
 TESTS = [
     test_version,
     test_stock_zh_a_hist_min_em,
@@ -91,6 +109,7 @@ TESTS = [
     test_stock_board_industry_name_em,
     test_stock_zt_pool_em,
     test_existing_apis,
+    test_new_v05_apis,
 ]
 
 
