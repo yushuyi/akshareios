@@ -11,7 +11,13 @@ def _ok(name: str) -> None:
 
 
 def test_version() -> None:
-    assert ak.__version__ == "0.5.1"
+    # 与 pyproject.toml 动态比对，发版改版本号不再需要同步这里
+    import pathlib
+    import tomllib
+
+    pyproject = pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml"
+    expected = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+    assert ak.__version__ == expected
     _ok(f"version {ak.__version__}")
 
 
