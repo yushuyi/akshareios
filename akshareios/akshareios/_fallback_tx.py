@@ -12,7 +12,7 @@ import requests
 from akshareios._convert import apply_row_limit, deduplicate_rows_by_date, to_float, to_int
 from akshareios._http import _EM_HEADERS
 from akshareios._pagination import make_page_result
-from akshareios._symbols import is_index_code, to_market_symbol
+from akshareios._symbols import to_market_symbol
 
 _TX_HEADERS = {
     **_EM_HEADERS,
@@ -34,7 +34,9 @@ def tx_daily_hist(
     is_index: bool = False,
 ) -> list[dict]:
     """腾讯日 K 线，仅支持日线。"""
-    tx_sym = to_market_symbol(symbol, is_index=is_index or is_index_code(symbol))
+    # 调用方已显式声明股票/指数身份（stock_hist 传 False、index_hist 传 True），
+    # 禁止按代码前缀猜测：000001 平安银行会被误判成上证指数，静默返回错误数据。
+    tx_sym = to_market_symbol(symbol, is_index=is_index)
     adj = {"qfq": "qfq", "hfq": "hfq"}.get(adjust, "")
 
     beg = _fmt_date(start_date)
