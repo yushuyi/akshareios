@@ -1,10 +1,12 @@
 """
 东方财富-行业板块列表
 
-数据源：东方财富 push2 clist API
+数据源：东方财富 push2 clist API；不可用时降级新浪行业板块
 原版参考：akshare/stock/stock_board_industry_em.py → stock_board_industry_name_em()
 """
 
+from akshareios._fallback import call_with_fallback
+from akshareios._fallback_sina import sina_board_industry_page
 from akshareios._http import get_push2_clist
 from akshareios._pagination import (
     DEFAULT_PAGE_SIZE,
@@ -36,10 +38,21 @@ def stock_board_industry_name_em(
     """
     东方财富-沪深行业板块列表（分页）
 
+    东财 push2 不可用时自动降级新浪行业板块；降级结果带「数据源: 新浪行业」，
+    板块代码为新浪体系（new_xxx），不可用于东财成分股接口。
+
     :param page: 页码，从 1 开始
     :param page_size: 每页条数，默认 20，最大 100
     :return: 分页 dict，items 含板块名称、涨跌幅、领涨股等
     """
+    return call_with_fallback(
+        lambda: _industry_em(page, page_size, timeout=timeout),
+        lambda: sina_board_industry_page(page, page_size, timeout=timeout),
+        retry_on_empty=True,
+    )
+
+
+def _industry_em(page: int, page_size: int, *, timeout: float) -> dict:
     page = clamp_page(page)
     page_size = clamp_page_size(page_size)
 

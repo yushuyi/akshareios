@@ -22,10 +22,54 @@ _SINA_HEADERS = {
 _HQ_URL = "https://hq.sinajs.cn/list={symbols}"
 _MINUTE_URL = "https://quotes.sina.cn/cn/api/jsonp_v2.php/=/CN_MarketDataService.getKLineData"
 _SPOT_URL = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
+_HY_URL = "https://vip.stock.finance.sina.com.cn/q/view/newSinaHy.php"
 _COUNT_URL = (
     "http://vip.stock.finance.sina.com.cn/quotes_service/api/"
     "json_v2.php/Market_Center.getHQNodeStockCount?node=hs_a"
 )
+
+
+def _parse_sina_boards(text: str) -> list[dict]:
+    """解析新浪行业板块响应（var S_Finance_bankuai_sinaindustry = {...}，GBK 已解码）。"""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return []
+    try:
+        raw = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return []
+    items = []
+    for label, row in raw.items():
+        parts = str(row).split(",")
+        if len(parts) < 13:
+            continue
+        items.append({
+            "板块代码": label,
+            "板块名称": parts[1],
+            "公司家数": to_int(parts[2]),
+            "平均价格": to_float(parts[3]),
+            "涨跌额": to_float(parts[4]),
+            "涨跌幅": to_float(parts[5]),
+            "总成交量": to_int(parts[6]),
+            "总成交额": to_float(parts[7]),
+            "领涨股代码": to_market_symbol(parts[8]).removeprefix("sh").removeprefix("sz").removeprefix("bj"),
+            "领涨股票": parts[12],
+            # 降级源的板块代码是新浪体系（new_xxx），不能喂给东财成分股接口，明示给调用方
+            "数据源": "新浪行业",
+        })
+    return items
+
+
+def sina_board_industry_page(page: int, page_size: int, *, timeout: float) -> dict:
+    """新浪行业板块分页 —— 东财行业板块不可用时的降级源。"""
+    r = requests.get(_HY_URL, timeout=timeout, headers=_SINA_HEADERS)
+    r.raise_for_status()
+    items = _parse_sina_boards(r.content.decode("gbk", errors="replace"))
+    start = (page - 1) * page_size
+    return make_page_result(
+        items[start : start + page_size], page=page, page_size=page_size, total=len(items)
+    )
 
 
 def sina_individual_quote(symbol: str, *, timeout: float) -> dict:
