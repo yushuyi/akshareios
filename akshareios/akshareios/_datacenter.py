@@ -41,8 +41,9 @@ def get_report(
 
 def to_secucode(symbol: str) -> str:
     """6 位代码 → 交易所后缀代码（603517 → 603517.SH）。"""
-    if symbol.startswith("6"):
-        return f"{symbol}.SH"
-    if symbol.startswith(("4", "8", "9")):
+    # 920 开头是北交所新代码段，须先于 9 判断；900 开头是沪 B，归 SH。
+    if symbol.startswith(("4", "8", "920")):
         return f"{symbol}.BJ"
+    if symbol.startswith(("5", "6", "9")):
+        return f"{symbol}.SH"
     return f"{symbol}.SZ"
