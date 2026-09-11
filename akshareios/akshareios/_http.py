@@ -39,6 +39,9 @@ def _create_session() -> requests.Session:
 
 _session = _create_session()
 
+# clist 轮换用：不挂重试（轮换节点本身就是重试），仅复用连接池拿 keep-alive
+_plain_session = requests.Session()
+
 
 def get(url: str, params: dict = None, timeout: float = 15, **kwargs) -> requests.Response:
     """发起 GET 请求，自带重试策略"""
@@ -58,7 +61,7 @@ def get_push2_clist(params: dict, timeout: float = 15) -> dict:
     last_err: Exception | None = None
     for url in urls:
         try:
-            resp = requests.get(
+            resp = _plain_session.get(
                 url, params=params, timeout=per_try, headers=_EM_HEADERS
             )
             resp.raise_for_status()
