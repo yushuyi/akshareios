@@ -48,9 +48,12 @@ echo "✅ 自检通过: $WHEEL ($(wc -c < "$WHEEL" | tr -d ' ') bytes)"
 rm -f "$SKILL_DIR"/wheels/akshareios-*.whl
 cp "$WHEEL" "$SKILL_DIR/wheels/"
 
-OLD_VERSION=$(sed -n 's/^version: "\?\(.*\)"\?/\1/p' "$SKILL_DIR/SKILL.md" | head -1 | tr -d '"')
+# BSD sed 不支持 \?，用整行锚定匹配 version: "x.y.z"
+OLD_VERSION=$(sed -n 's/^version: "\(.*\)"$/\1/p' "$SKILL_DIR/SKILL.md" | head -1)
 if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$VERSION" ]; then
     sed -i '' "s/$OLD_VERSION/$VERSION/g" "$SKILL_DIR/SKILL.md"
     echo "✅ SKILL.md 版本已同步: $OLD_VERSION → $VERSION"
+elif [ -z "$OLD_VERSION" ]; then
+    echo "❌ SKILL.md 缺少可解析的 version: 行，未做版本同步"; exit 1
 fi
 echo "✅ 已同步到 $SKILL_DIR/wheels/（记得两仓库分别提交）"

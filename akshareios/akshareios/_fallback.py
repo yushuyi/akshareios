@@ -27,6 +27,11 @@ def call_with_fallback(
 def _is_empty(value) -> bool:
     if value is None:
         return True
-    if isinstance(value, (list, dict, str)):
+    if isinstance(value, dict):
+        # 分页结果（含 items 键）看 items 长度，否则 make_page_result 恒非空导致空页不降级；
+        # 无 items 键的记录 dict 维持原 len 语义
+        target = value.get("items", value)
+        return len(target) == 0
+    if isinstance(value, (list, str)):
         return len(value) == 0
     return False

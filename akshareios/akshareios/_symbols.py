@@ -13,12 +13,17 @@ def to_market_symbol(symbol: str, *, is_index: bool = False) -> str:
 
     code = symbol.zfill(6)
     if is_index:
-        if code.startswith("399"):
+        # 399 深指；899050 北证 50 与 920 北交所段归 bj，其余默认上证
+        if code.startswith(("399",)):
             return f"sz{code}"
+        if code.startswith(("899", "920")):
+            return f"bj{code}"
         return f"sh{code}"
 
-    if code.startswith("6"):
-        return f"sh{code}"
-    if code.startswith(("8", "4")):
+    # 与 _datacenter.to_secucode 的市场归属保持一致：
+    # 920 北交所新代码段须先于 9（900 沪 B）判断
+    if code.startswith(("4", "8", "920")):
         return f"bj{code}"
+    if code.startswith(("5", "6", "9")):
+        return f"sh{code}"
     return f"sz{code}"

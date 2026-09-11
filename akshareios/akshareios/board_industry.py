@@ -45,6 +45,9 @@ def stock_board_industry_name_em(
     :param page_size: 每页条数，默认 20，最大 100
     :return: 分页 dict，items 含板块名称、涨跌幅、领涨股等
     """
+    # 先 clamp 再进降级链：page_size=0 会让降级源的分页运算 ZeroDivisionError
+    page = clamp_page(page)
+    page_size = clamp_page_size(page_size)
     return call_with_fallback(
         lambda: _industry_em(page, page_size, timeout=timeout),
         lambda: sina_board_industry_page(page, page_size, timeout=timeout),

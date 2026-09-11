@@ -44,6 +44,8 @@ def _parse_sina_boards(text: str) -> list[dict]:
         parts = str(row).split(",")
         if len(parts) < 13:
             continue
+        # 盘前/停牌时段领涨股可能为空，to_market_symbol("") 会产出伪代码
+        leader_code = to_market_symbol(parts[8]).removeprefix("sh").removeprefix("sz").removeprefix("bj") if parts[8] else None
         items.append({
             "板块代码": label,
             "板块名称": parts[1],
@@ -53,8 +55,8 @@ def _parse_sina_boards(text: str) -> list[dict]:
             "涨跌幅": to_float(parts[5]),
             "总成交量": to_int(parts[6]),
             "总成交额": to_float(parts[7]),
-            "领涨股代码": to_market_symbol(parts[8]).removeprefix("sh").removeprefix("sz").removeprefix("bj"),
-            "领涨股票": parts[12],
+            "领涨股代码": leader_code,
+            "领涨股票": parts[12] or None,
             # 降级源的板块代码是新浪体系（new_xxx），不能喂给东财成分股接口，明示给调用方
             "数据源": "新浪行业",
         })
