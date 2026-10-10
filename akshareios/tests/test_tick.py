@@ -82,19 +82,24 @@ def test_tick_em_parse(monkeypatch) -> None:
 
 
 def test_tick_em_paging(monkeypatch) -> None:
+    calls = []
+
     def fake_json(path, params, timeout=15):
-        pos = params["pos"]
-        if pos == "-0":
-            # 本页最早 09:30，未到集合竞价，需继续翻页
+        calls.append(params["pos"])
+        if params["pos"] == "-0":
+            # 行序故意倒置：details[0] 是 09:16，min 才是 09:15——
+            # 若实现回退成取首行，会误判未到集合竞价而多翻一页
             return {"data": {"details": [
-                "09:30:00,11.21,100,0,2",
-                "09:31:00,11.22,50,0,1",
+                "09:16:00,11.21,100,0,2",
+                "09:15:00,11.20,50,0,1",
             ]}}
-        return {"data": {"details": []}}  # 第二页空，终止
+        return {"data": {"details": []}}  # 空页，防御性终止
 
     monkeypatch.setattr(st, "get_push2_json", fake_json)
     rows = st.stock_zh_a_tick_em("603517")
+    assert len(calls) == 1   # 本页 min 已到 09:15，单页即终止
     assert len(rows) == 2                       # 两笔切片
+    assert [r["成交时间"] for r in rows] == ["09:15:00", "09:16:00"]
     assert sum(r["成交量"] for r in rows) == 150  # 100 + 50
 
 
