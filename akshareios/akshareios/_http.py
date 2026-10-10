@@ -20,6 +20,7 @@ _EM_HEADERS = {
 
 _CDN_NODES = [80, 82, 83, 84, 85, 86, 87, 88, 89, 90]
 _CLIST_MAX_FALLBACKS = 2
+_PUSH2_MAX_FALLBACKS = 3
 
 
 def _create_session() -> requests.Session:
@@ -78,3 +79,35 @@ def get_push2_clist(params: dict, timeout: float = 15) -> dict:
     if last_err:
         raise requests.ConnectionError(f"push2 clist 不可用: {last_err}") from last_err
     raise requests.ConnectionError("所有 push2 CDN 节点不可用，请稍后重试")
+
+
+def get_push2_json(path: str, params: dict, timeout: float = 15) -> dict:
+    """
+    获取东方财富 push2 接口的 JSON（clist 之外的接口，如 details/get）。
+
+    主域名失败后最多再试 3 个 CDN 节点；单次请求不重试，避免 iOS 上长时间挂起。
+    :param path: 接口路径，如 "/api/qt/stock/details/get"
+    """
+    per_try = min(timeout, 6)
+    urls = [f"https://push2.eastmoney.com{path}"]
+    for node in random.sample(_CDN_NODES, _PUSH2_MAX_FALLBACKS):
+        urls.append(f"https://{node}.push2.eastmoney.com{path}")
+
+    last_err: Exception | None = None
+    for url in urls:
+        try:
+            resp = _plain_session.get(url, params=params, timeout=per_try, headers=_EM_HEADERS)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("data"):
+                return data
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            last_err = exc
+            continue
+        except Exception as exc:
+            last_err = exc
+            continue
+
+    if last_err:
+        raise requests.ConnectionError(f"push2 {path} 不可用: {last_err}") from last_err
+    raise requests.ConnectionError(f"所有 push2 CDN 节点不可用: {path}")
