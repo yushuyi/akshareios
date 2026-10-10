@@ -21,6 +21,19 @@ from akshareios._fallback import call_with_fallback
 from akshareios._http import get, get_push2_json
 from akshareios._symbols import to_market_symbol
 
+
+# 市场归属：北交所段（4/8/920）、沪市段（5/6/9，须排除 920），其余为深市。
+# 东财 secid 与网易页面前缀共用同一判断，避免两处自相矛盾。
+
+
+def _is_bj(code: str) -> bool:
+    return code.startswith(("4", "8", "920"))
+
+
+def _is_sh(code: str) -> bool:
+    return not _is_bj(code) and code.startswith(("5", "6", "9"))
+
+
 # ---------------------------------------------------------------- 腾讯源
 
 _TX_URL = "https://stock.gtimg.cn/data/index.php"
@@ -101,8 +114,9 @@ def _extract_js_string(text: str) -> str:
 # ---------------------------------------------------------------- 东财源
 
 _EM_DETAILS_PATH = "/api/qt/stock/details/get"
-# 东财方向标记：1 买盘、2 卖盘，其余（如集合竞价的 4）归为中性盘
-_EM_PROP = {"1": "买盘", "2": "卖盘"}
+# 东财方向标记（对齐上游 AKShare stock_intraday_em）：2 买盘、1 卖盘、4 中性盘
+_EM_PROP = {"2": "买盘", "1": "卖盘", "4": "中性盘"}
+_EM_UT = "bd1d9ddb04089700cf9c27f6f7426281"
 _EM_MAX_PAGES = 30
 
 
@@ -111,26 +125,30 @@ def stock_zh_a_tick_em(symbol: str, *, timeout: float = 15) -> list[dict]:
     东方财富-当日分笔成交明细（含 09:15 起集合竞价记录）。
 
     单次请求返回最近约 1000 条，成交活跃的标的自动向前翻页补全。
+    东财不提供价格变动，成交金额按 价格 × 成交量 × 100 估算。
     """
     code = ensure_symbol(symbol)
     # 东财 secid：沪市 1、深市与北交所 0
-    market = 1 if code.startswith(("5", "6", "9")) else 0
+    market = 1 if _is_sh(code) else 0
     secid = f"{market}.{code}"
 
     rows: list[dict] = []
     seen: set[str] = set()
     for pos in range(_EM_MAX_PAGES):
-        data = get_push2_json(
+        envelope = get_push2_json(
             _EM_DETAILS_PATH,
             params={
                 "secid": secid,
                 "fields1": "f1,f2,f3,f4",
                 "fields2": "f51,f52,f53,f54,f55",
+                "ut": _EM_UT,
+                "fltt": "2",
                 "pos": f"-{pos}",
             },
             timeout=timeout,
         )
-        details = data.get("details") or []
+        # get_push2_json 返回外层 envelope，details 在其 data 层
+        details = (envelope.get("data") or {}).get("details") or []
         page_count = 0
         for line in details:
             if line in seen:
@@ -139,20 +157,27 @@ def stock_zh_a_tick_em(symbol: str, *, timeout: float = 15) -> list[dict]:
             fields = line.split(",")
             if len(fields) < 5:
                 continue
+            price = to_float(fields[1])
+            volume = to_int(fields[2])
+            amount = (
+                int(round(price * volume * 100))
+                if price is not None and volume is not None
+                else None
+            )
             rows.append({
                 "成交时间": fields[0],
-                "成交价格": to_float(fields[1]),
+                "成交价格": price,
                 "价格变动": None,
-                "成交量": to_int(fields[2]),
-                "成交笔数": to_int(fields[3]),
+                "成交量": volume,
+                "成交金额": amount,
                 "性质": _EM_PROP.get(fields[4], "中性盘"),
             })
             page_count += 1
 
         if page_count == 0:
             break
-        # 本页最早记录已到盘前集合竞价，全天拉取完毕
-        earliest = details[0].split(",")[0]
+        # 本页最早记录已到盘前集合竞价，全天拉取完毕；取最小时间，不依赖返回顺序
+        earliest = min(line.split(",")[0] for line in details)
         if earliest[:5] <= "09:15":
             break
 
@@ -195,7 +220,7 @@ def stock_zh_a_tick_163(
 
 def _build_163_url(code: str, date_str: str) -> str:
     # 网易页面市场前缀：沪市 0，深市及北交所 1
-    market_prefix = "0" if code.startswith(("5", "6", "9")) else "1"
+    market_prefix = "0" if _is_sh(code) else "1"
     return (
         f"https://quotes.money.163.com/cjmx/{date_str[:4]}/{date_str}/"
         f"{market_prefix}{code}.html"
@@ -216,7 +241,7 @@ def _parse_163_table(html_text: str) -> list[dict]:
             "成交时间": cells[0],
             "成交价格": to_float(cells[1]),
             "价格变动": to_float(cells[2]),
-            "成交量": to_int(cells[3]),
+            "成交量": to_int(cells[3].replace(",", "")),
             "成交金额": to_int(cells[4].replace(",", "")),
             "性质": cells[5],
         })

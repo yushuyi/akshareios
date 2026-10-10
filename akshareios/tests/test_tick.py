@@ -27,6 +27,12 @@ def _tx_page(p: int) -> _Resp:
             'v_detail_data_sh603517=[0,"0/09:25:00/11.20/0.00/471/527520/S'
             '|1/09:30:02/11.23/0.03/10/11230/B"]'
         )
+    if p == 1:
+        # seq 1 与上一页重复，seq 2 为新记录，验证跨页按序号去重
+        return _Resp(
+            'v_detail_data_sh603517=[0,"1/09:30:02/11.23/0.03/10/11230/B'
+            '|2/09:30:05/11.24/0.01/5/5620/B"]'
+        )
     return _Resp('v_detail_data_sh603517=[0,""]')
 
 
@@ -36,9 +42,10 @@ def test_tick_tx_parse(monkeypatch) -> None:
         lambda url, params=None, timeout=None, headers=None: _tx_page(params["p"]),
     )
     rows = st.stock_zh_a_tick_tx("603517")
-    assert len(rows) == 2
+    assert len(rows) == 3  # seq 0/1/2，重复的 seq 1 被去掉
     assert rows[0]["成交时间"] == "09:25:00"
-    assert rows[0]["性质"] == "卖盘" and rows[1]["性质"] == "买盘"
+    assert rows[0]["性质"] == "卖盘"
+    assert rows[1]["性质"] == "买盘" and rows[2]["性质"] == "买盘"
     assert rows[0]["成交量"] == 471 and rows[0]["成交金额"] == 527520
     assert rows[1]["成交价格"] == 11.23 and rows[1]["价格变动"] == 0.03
 
@@ -46,21 +53,68 @@ def test_tick_tx_parse(monkeypatch) -> None:
 # ---------------------------------------------------------------- 东财源
 
 def test_tick_em_parse(monkeypatch) -> None:
+    calls = []
+
     def fake_json(path, params, timeout=15):
-        return {"details": [
+        calls.append(params)
+        # 注意形状：details 在 data 层内
+        return {"data": {"details": [
             "09:15:15,11.18,36,0,4",
-            "09:30:00,11.21,1498,45,1",
-            "09:30:03,11.20,10,2,2",
-        ]}
+            "09:30:00,11.21,1498,0,2",
+            "09:30:03,11.20,10,0,1",
+        ]}}
 
     monkeypatch.setattr(st, "get_push2_json", fake_json)
     rows = st.stock_zh_a_tick_em("603517")
     assert len(rows) == 3
-    assert rows[0]["性质"] == "中性盘"   # 标记 4
-    assert rows[1]["性质"] == "买盘"   # 标记 1
-    assert rows[2]["性质"] == "卖盘"   # 标记 2
-    assert rows[1]["成交笔数"] == 45
-    assert rows[0]["成交时间"] == "09:15:15"
+    # 方向对齐上游：4 中性、2 买盘、1 卖盘
+    assert rows[0]["性质"] == "中性盘"
+    assert rows[1]["性质"] == "买盘"
+    assert rows[2]["性质"] == "卖盘"
+    # 东财无金额，按 价×量×100 估算
+    assert rows[0]["成交金额"] == 40248
+    assert rows[1]["成交金额"] == 1679258
+    assert rows[2]["成交金额"] == 11200
+    assert rows[0]["价格变动"] is None
+    # 本页最早 09:15，拉取一次即终止
+    assert len(calls) == 1
+    assert calls[0]["ut"]  # 请求必须带 ut
+
+
+def test_tick_em_paging(monkeypatch) -> None:
+    def fake_json(path, params, timeout=15):
+        pos = params["pos"]
+        if pos == "-0":
+            # 本页最早 09:30，未到集合竞价，需继续翻页
+            return {"data": {"details": [
+                "09:30:00,11.21,100,0,2",
+                "09:31:00,11.22,50,0,1",
+            ]}}
+        return {"data": {"details": []}}  # 第二页空，终止
+
+    monkeypatch.setattr(st, "get_push2_json", fake_json)
+    rows = st.stock_zh_a_tick_em("603517")
+    assert len(rows) == 2                       # 两笔切片
+    assert sum(r["成交量"] for r in rows) == 150  # 100 + 50
+
+
+def test_tick_em_secid_market(monkeypatch) -> None:
+    seen_secid = []
+
+    def fake_json(path, params, timeout=15):
+        seen_secid.append(params["secid"])
+        return {"data": {"details": ["09:15:00,11.00,1,0,4"]}}
+
+    monkeypatch.setattr(st, "get_push2_json", fake_json)
+    for code, expected in [
+        ("603517", "1.603517"),  # 沪
+        ("000001", "0.000001"),  # 深
+        ("920001", "0.920001"),  # 北交所 920 段，不得挂沪
+        ("830799", "0.830799"),  # 北交所 8 段
+        ("430047", "0.430047"),  # 北交所 4 段
+    ]:
+        st.stock_zh_a_tick_em(code)
+        assert seen_secid[-1] == expected
 
 
 # ---------------------------------------------------------------- 网易源
@@ -70,7 +124,7 @@ _HTML = (
     "<tr><td>09:25:00</td><td>11.20</td><td>0.00</td>"
     "<td>471</td><td>527,520</td><td>卖盘</td></tr>"
     "<tr><td>15:00:00</td><td>11.21</td><td>0.01</td>"
-    "<td>1498</td><td>1,679,258</td><td>中性盘</td></tr>"
+    "<td>1,498</td><td>1,679,258</td><td>中性盘</td></tr>"
     "</table>"
 )
 
@@ -83,7 +137,7 @@ def test_tick_163_parse(monkeypatch) -> None:
     rows = st.stock_zh_a_tick_163("603517", "20261009")
     assert len(rows) == 2
     assert rows[0]["成交金额"] == 527520 and rows[0]["性质"] == "卖盘"
-    assert rows[1]["成交金额"] == 1679258
+    assert rows[1]["成交量"] == 1498 and rows[1]["成交金额"] == 1679258
 
 
 def test_tick_163_502(monkeypatch) -> None:
@@ -108,9 +162,15 @@ def test_build_163_url() -> None:
     assert st._build_163_url("603517", "20261009").endswith(
         "/cjmx/2026/20261009/0603517.html"
     )
-    # 深市市场前缀为 1
     assert st._build_163_url("000001", "20261009").endswith(
         "/cjmx/2026/20261009/1000001.html"
+    )
+    # 北交所与深市同前缀 1，不得挂沪
+    assert st._build_163_url("920001", "20261009").endswith(
+        "/cjmx/2026/20261009/1920001.html"
+    )
+    assert st._build_163_url("830799", "20261009").endswith(
+        "/cjmx/2026/20261009/1830799.html"
     )
 
 
