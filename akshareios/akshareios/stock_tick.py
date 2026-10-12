@@ -11,8 +11,10 @@ A 股分笔成交明细（成交明细）
 成交量单位为「手」，成交金额单位为「元」。
 """
 
+import csv
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import requests
 
@@ -286,6 +288,94 @@ def stock_zh_a_tick(
         lambda: stock_zh_a_tick_em(code, timeout=timeout),
         retry_on_empty=True,
     )
+
+
+# ---------------------------------------------------------------- 拉取即落盘
+
+_UNSAFE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\s]')
+_TICK_SUBDIR = ("data", "成交明细")
+_CSV_HEADER = ["成交时间", "成交价格(元)", "价格变动(元)", "成交量(手)", "成交金额(元)", "性质"]
+
+
+def stock_zh_a_tick_to_file(
+    symbol: str,
+    trade_date: str | None = None,
+    *,
+    source: str = "auto",
+    out_dir: str | None = None,
+    timeout: float = 15,
+) -> str:
+    """
+    拉取分笔成交明细并自动落盘，返回生成文件的绝对路径。
+
+    Agent 获取成交明细时应优先调用本函数：拉取 → 写 CSV 到
+    Documents/data/成交明细/ → 返回路径。iOS 上命令结束后快照桥会把
+    该文件自动写回宿主 Documents 持久保存。
+
+    :param trade_date: 交易日 YYYYMMDD，缺省为最近交易日
+    :param source: auto / tx / em / 163
+    :param out_dir: 自定义输出目录，缺省为 Documents/data/成交明细
+    :return: 生成 CSV 的路径字符串
+    """
+    code = ensure_symbol(symbol)
+    want_date = _normalize_date(trade_date) if trade_date else latest_trade_date()
+
+    rows = stock_zh_a_tick(code, want_date, source=source, timeout=timeout)
+    if not rows:
+        raise ValueError("未获取到成交明细，请确认代码、日期（交易日且已收盘）后重试")
+
+    target_dir = (
+        Path(out_dir) if out_dir else _documents_root().joinpath(*_TICK_SUBDIR)
+    )
+    stock_name = _safe_stock_name(code)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / f"{stock_name}_{code}_{want_date}.csv"
+
+    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(_CSV_HEADER)
+        for r in rows:
+            writer.writerow([
+                r["成交时间"],
+                r["成交价格"],
+                r.get("价格变动"),
+                r["成交量"],
+                r.get("成交金额"),
+                r["性质"],
+            ])
+    return str(path)
+
+
+def _safe_stock_name(code: str) -> str:
+    """取股票简称用于命名，失败或含非法字符时回退为代码。"""
+    try:
+        from akshareios.stock_info import stock_individual_info_em
+
+        name = stock_individual_info_em(symbol=code).get("股票简称")
+        if name:
+            return _UNSAFE_NAME_CHARS.sub("_", str(name))
+    except Exception:
+        pass
+    return code
+
+
+def _documents_root() -> Path:
+    """
+    定位宿主 Documents 根（iOS 快照桥的注入/写回根）。
+
+    iOS Pyodide 下宿主 Documents 注入在 __MS_DOCROOT__/Documents，
+    终端 cwd 即 Documents；Mac/原生 CPython 下回退到 cwd 或 ~/Documents。
+    """
+    try:
+        import js  # 仅 Pyodide 可用
+
+        root = Path(str(js.window.__MS_DOCROOT__)) / "Documents"
+        if root.exists():
+            return root
+    except Exception:
+        pass
+    cwd = Path.cwd()
+    return cwd if cwd.name == "Documents" else Path.home() / "Documents"
 
 
 # ---------------------------------------------------------------- 日期工具
