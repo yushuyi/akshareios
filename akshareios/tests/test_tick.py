@@ -289,4 +289,86 @@ def test_safe_stock_name_cleans_and_falls_back(monkeypatch) -> None:
         raise requests.ConnectionError("获取失败")
 
     monkeypatch.setattr(info, "stock_individual_info_em", boom)
+    st._NAME_CACHE.clear()  # 清缓存，才能走到失败回退分支
     assert st._safe_stock_name("603517") == "603517"  # 失败回退代码
+
+
+# ------------------------------------------------- 实时会话日（盘中归属当天）
+
+def test_realtime_session_date() -> None:
+    from datetime import datetime
+
+    cases = [
+        (datetime(2026, 10, 12, 10, 0), "20261012"),   # 周一盘中 → 当天
+        (datetime(2026, 10, 12, 15, 30), "20261012"),  # 周一盘后 → 当天
+        (datetime(2026, 10, 12, 8, 0), "20261009"),    # 周一盘前 → 上周五
+        (datetime(2026, 10, 13, 8, 0), "20261012"),    # 周二盘前 → 周一
+        (datetime(2026, 10, 13, 9, 15), "20261013"),   # 周二 09:15 → 当天
+        (datetime(2026, 10, 10, 10, 0), "20261009"),   # 周六 → 周五
+        (datetime(2026, 10, 11, 10, 0), "20261009"),   # 周日 → 周五
+    ]
+    for ref, expected in cases:
+        assert st._realtime_session_date(ref) == expected, ref
+
+
+# ------------------------------------------------- Documents 根定位
+
+def test_documents_root_cwd(monkeypatch, tmp_path) -> None:
+    docs = tmp_path / "Documents"
+    docs.mkdir()
+    monkeypatch.chdir(docs)
+    assert st._documents_root() == docs  # cwd 名为 Documents → 直接用
+
+
+def test_documents_root_home_fallback(monkeypatch, tmp_path) -> None:
+    from pathlib import Path
+
+    monkeypatch.chdir(tmp_path)  # cwd 不叫 Documents、无 js → 回退主目录
+    assert st._documents_root() == Path.home() / "Documents"
+
+
+def test_documents_root_ios(monkeypatch, tmp_path) -> None:
+    import sys
+    import types
+
+    (tmp_path / "Documents").mkdir(parents=True)
+    fake_js = types.SimpleNamespace(
+        window=types.SimpleNamespace(__MS_DOCROOT__=str(tmp_path))
+    )
+    monkeypatch.setitem(sys.modules, "js", fake_js)  # 模拟 Pyodide 的 js
+    assert st._documents_root() == tmp_path / "Documents"
+
+
+# ------------------------------------------------- 落盘：默认目录/透传/原子写
+
+def test_tick_to_file_default_dir(monkeypatch, tmp_path) -> None:
+    fake_rows = [{"成交时间": "09:25:00", "成交价格": 11.2, "价格变动": 0.0,
+                  "成交量": 1, "成交金额": 100, "性质": "中性盘"}]
+    monkeypatch.setattr(st, "_documents_root", lambda: tmp_path)
+    monkeypatch.setattr(st, "stock_zh_a_tick", lambda *a, **k: fake_rows)
+    monkeypatch.setattr(st, "_safe_stock_name", lambda c: "ST绝味")
+
+    path = st.stock_zh_a_tick_to_file("603517", "20261009")  # 不传 out_dir
+    assert path == str(tmp_path / "data" / "成交明细" / "ST绝味_603517_20261009.csv")
+
+
+def test_tick_to_file_passthrough_none_and_atomic(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    def fake_tick(code, date, source="auto", timeout=15):
+        captured.update(code=code, date=date, source=source, timeout=timeout)
+        # 价格变动、成交金额缺失 → CSV 对应单元格应为空字符串
+        return [{"成交时间": "09:25:00", "成交价格": 11.2,
+                 "成交量": 1, "性质": "中性盘"}]
+
+    monkeypatch.setattr(st, "stock_zh_a_tick", fake_tick)
+    monkeypatch.setattr(st, "_safe_stock_name", lambda c: "ST绝味")
+    path = st.stock_zh_a_tick_to_file(
+        "603517", "20261009", source="tx", timeout=5, out_dir=str(tmp_path)
+    )
+
+    assert captured == dict(code="603517", date="20261009", source="tx", timeout=5)
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        table = list(csv.reader(fh))
+    assert table[1] == ["09:25:00", "11.2", "", "1", "", "中性盘"]  # None→空
+    assert not (tmp_path / "ST绝味_603517_20261009.csv.tmp").exists()  # 临时文件不残留
