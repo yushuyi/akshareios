@@ -12,7 +12,9 @@ A 股分笔成交明细（成交明细）
 """
 
 import csv
+import os
 import re
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -267,7 +269,7 @@ def stock_zh_a_tick(
     :param source: auto / tx / em / 163，可强制指定数据源
     """
     code = ensure_symbol(symbol)
-    latest = latest_trade_date()
+    latest = _realtime_session_date()
     want_date = _normalize_date(trade_date) if trade_date else latest
     is_latest = want_date == latest
 
@@ -318,7 +320,7 @@ def stock_zh_a_tick_to_file(
     :return: 生成 CSV 的路径字符串
     """
     code = ensure_symbol(symbol)
-    want_date = _normalize_date(trade_date) if trade_date else latest_trade_date()
+    want_date = _normalize_date(trade_date) if trade_date else _realtime_session_date()
 
     rows = stock_zh_a_tick(code, want_date, source=source, timeout=timeout)
     if not rows:
@@ -331,7 +333,9 @@ def stock_zh_a_tick_to_file(
     target_dir.mkdir(parents=True, exist_ok=True)
     path = target_dir / f"{stock_name}_{code}_{want_date}.csv"
 
-    with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+    # 原子写：先写临时文件再替换，避免中断/异常留下半截 CSV
+    tmp_path = path.with_name(path.name + ".tmp")
+    with open(tmp_path, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh)
         writer.writerow(_CSV_HEADER)
         for r in rows:
@@ -343,20 +347,36 @@ def stock_zh_a_tick_to_file(
                 r.get("成交金额"),
                 r["性质"],
             ])
+    os.replace(tmp_path, path)
+
+    # 快照桥超护栏降级时给出可见提示（写回仍进行，但历史文件本次不可见）
+    if _workspace_bridge_skipped():
+        print(
+            "警告：Documents 超护栏（>32MB 或 >2000 文件），快照通道已降级；"
+            "本文件仍会写回，但历史文件本次会话不可见。",
+            file=sys.stderr,
+        )
     return str(path)
 
 
+_NAME_CACHE: dict[str, str] = {}
+
+
 def _safe_stock_name(code: str) -> str:
-    """取股票简称用于命名，失败或含非法字符时回退为代码。"""
+    """取股票简称用于命名，失败或含非法字符时回退为代码；按代码缓存避免重复请求。"""
+    if code in _NAME_CACHE:
+        return _NAME_CACHE[code]
+    result = code
     try:
         from akshareios.stock_info import stock_individual_info_em
 
         name = stock_individual_info_em(symbol=code).get("股票简称")
         if name:
-            return _UNSAFE_NAME_CHARS.sub("_", str(name))
+            result = _UNSAFE_NAME_CHARS.sub("_", str(name))
     except Exception:
         pass
-    return code
+    _NAME_CACHE[code] = result
+    return result
 
 
 def _documents_root() -> Path:
@@ -401,3 +421,27 @@ def latest_trade_date(reference: datetime | None = None) -> str:
     else:                  # 周二至周六 → 前一天
         delta = 1
     return (now - timedelta(days=delta)).strftime("%Y%m%d")
+
+
+def _workspace_bridge_skipped() -> bool:
+    """读取本次 run 前快照桥设置的降级标志（Documents 超护栏时为 true）。"""
+    try:
+        import js
+
+        return bool(getattr(js.window, "__MS_WS_SKIPPED__", False))
+    except Exception:
+        return False
+
+
+def _realtime_session_date(reference: datetime | None = None) -> str:
+    """
+    实时源（腾讯/东财）当前数据所属的交易日。
+
+    工作日已开盘（09:15 起，含盘中与盘后）即为当天；盘前、周末回退到
+    最近收盘日（latest_trade_date）。仅按星期与时刻判断，**不含法定
+    节假日**：工作日休市日盘中会误判为当天，属已知限制。
+    """
+    now = reference or datetime.now()
+    if now.weekday() < 5 and (now.hour, now.minute) >= (9, 15):
+        return now.strftime("%Y%m%d")
+    return latest_trade_date(now)
