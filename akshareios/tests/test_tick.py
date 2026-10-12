@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """分笔成交明细的单元测试（monkeypatch 网络，无需联网）"""
 
+import csv
+
 import pytest
 import requests
 
@@ -240,3 +242,51 @@ def test_forced_source(monkeypatch) -> None:
 def test_invalid_symbol() -> None:
     with pytest.raises(ValueError):
         st.stock_zh_a_tick("abc")
+
+
+# ---------------------------------------------------------------- 拉取即落盘
+
+def test_tick_to_file_writes_and_returns_path(monkeypatch, tmp_path) -> None:
+    fake_rows = [
+        {"成交时间": "09:25:00", "成交价格": 11.2, "价格变动": 0.0,
+         "成交量": 471, "成交金额": 527520, "性质": "卖盘"},
+        {"成交时间": "15:00:00", "成交价格": 11.21, "价格变动": 0.01,
+         "成交量": 1498, "成交金额": 1679258, "性质": "中性盘"},
+    ]
+    monkeypatch.setattr(st, "stock_zh_a_tick", lambda *a, **k: fake_rows)
+    monkeypatch.setattr(st, "_safe_stock_name", lambda code: "ST绝味")
+
+    path = st.stock_zh_a_tick_to_file("603517", "20261009", out_dir=str(tmp_path))
+    assert path == str(tmp_path / "ST绝味_603517_20261009.csv")
+
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        table = list(csv.reader(fh))
+    assert table[0] == [
+        "成交时间", "成交价格(元)", "价格变动(元)",
+        "成交量(手)", "成交金额(元)", "性质",
+    ]
+    assert len(table) == 3  # 表头 + 2 笔
+    assert table[1] == ["09:25:00", "11.2", "0.0", "471", "527520", "卖盘"]
+
+
+def test_tick_to_file_empty_raises(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(st, "stock_zh_a_tick", lambda *a, **k: [])
+    with pytest.raises(ValueError):
+        st.stock_zh_a_tick_to_file("603517", "20261009", out_dir=str(tmp_path))
+
+
+def test_safe_stock_name_cleans_and_falls_back(monkeypatch) -> None:
+    import akshareios.stock_info as info
+
+    # 简称中的 * 等非法字符须清洗
+    monkeypatch.setattr(
+        info, "stock_individual_info_em",
+        lambda symbol: {"股票简称": "*ST绝味"},
+    )
+    assert st._safe_stock_name("603517") == "_ST绝味"
+
+    def boom(symbol):
+        raise requests.ConnectionError("获取失败")
+
+    monkeypatch.setattr(info, "stock_individual_info_em", boom)
+    assert st._safe_stock_name("603517") == "603517"  # 失败回退代码
