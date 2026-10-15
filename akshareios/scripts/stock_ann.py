@@ -1,50 +1,46 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""A 股公告查询 — 数据源：东方财富公开接口
+"""A 股公告查询（akshareios 包模块的命令行入口）—— 数据源：东方财富
 用法:
-  python3 scripts/stock_ann.py <代码> [条数] [--kw 关键词]   # 列出最近公告
-  python3 scripts/stock_ann.py <代码> --read <art_code>     # 读取公告正文
+  python3 scripts/stock_ann.py <代码> [条数] [--kw 关键词] [--cat 类别]  # 列出最近公告
+  python3 scripts/stock_ann.py <代码> --read <公告编码>                  # 读取公告正文
 示例:
-  python3 scripts/stock_ann.py 600519 10
-  python3 scripts/stock_ann.py 600519 20 --kw 半年度报告
-  python3 scripts/stock_ann.py 600519 --read AN202608141827994407
+  python3 scripts/stock_ann.py 603517 10
+  python3 scripts/stock_ann.py 603517 20 --kw 半年度报告
+  python3 scripts/stock_ann.py 603517 --cat 财务报告
+  python3 scripts/stock_ann.py 603517 --read AN202610121830364073
 """
-import sys, json, requests
+import json
+import os
+import sys
 
-LIST_API = "https://np-anotice-stock.eastmoney.com/api/security/ann"
-CONT_API = "https://np-cnotice-stock.eastmoney.com/api/content/ann"
+# 脚本位于 akshareios/scripts/，包根是上一级目录
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def list_ann(code, size=10, kw=None):
-    r = requests.get(LIST_API, params={
-        "sr": -1, "page_size": 100 if kw else size, "page_index": 1,
-        "ann_type": "A", "stock_list": code}, timeout=15)
-    items = (r.json().get("data") or {}).get("list") or []
-    out = []
-    for it in items:
-        title = it.get("title_ch") or it.get("title", "")
-        if kw and kw not in title:
-            continue
-        out.append({"date": (it.get("notice_date") or "")[:10],
-                    "art_code": it.get("art_code"), "title": title})
-    return out[:size]
+from akshareios.stock_ann import stock_ann_content_em, stock_ann_em
 
-def read_ann(art_code, code):
-    r = requests.get(CONT_API, params={
-        "art_code": art_code, "page_size": 50, "page_index": 1,
-        "ann_type": "A", "stock_list": code,
-        "client_source": "web", "f_node": 0, "s_node": 0}, timeout=15)
-    return (r.json().get("data", {}) or {}).get("notice_content", "")
+
+def _opt(name: str) -> str | None:
+    if name in sys.argv and sys.argv.index(name) + 1 < len(sys.argv):
+        return sys.argv[sys.argv.index(name) + 1]
+    return None
+
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    kw_i = sys.argv.index("--kw") if "--kw" in sys.argv else -1
-    kw = sys.argv[kw_i + 1] if 0 <= kw_i < len(sys.argv) - 1 else None
     code = args[0] if args else "600519"
     if "--read" in sys.argv:
-        art = sys.argv[sys.argv.index("--read") + 1]
-        print(read_ann(art, code))
+        art = _opt("--read")
+        print(json.dumps(stock_ann_content_em(code, art), ensure_ascii=False, indent=2))
     else:
         size = int(args[1]) if len(args) > 1 else 10
-        rows = list_ann(code, size, kw)
-        print(json.dumps({"stock": code, "count": len(rows), "items": rows},
-                         ensure_ascii=False, indent=2))
+        rows = stock_ann_em(
+            code,
+            size,
+            keyword=_opt("--kw"),
+            category=_opt("--cat") or "全部",
+        )
+        print(json.dumps(
+            {"stock": code, "count": len(rows), "items": rows},
+            ensure_ascii=False, indent=2,
+        ))

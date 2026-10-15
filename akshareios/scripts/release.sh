@@ -34,7 +34,7 @@ case "$INIT_SRC" in
 esac
 LISTING=$(unzip -l "$WHEEL")
 for mod in _convert _datacenter _fallback _fallback_sina _fallback_tx _http _pagination _symbols \
-           board_industry index_hist stock_finance stock_fund_flow stock_hist stock_holders \
+           board_industry index_hist stock_ann stock_finance stock_fund_flow stock_hist stock_holders \
            stock_info stock_list stock_min stock_spot stock_tick stock_zt; do
     case "$LISTING" in
         *"akshareios/${mod}.py"*) ;;

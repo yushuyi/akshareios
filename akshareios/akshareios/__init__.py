@@ -5,7 +5,7 @@ akshareios - AKShare 轻量 iOS 版
 仅依赖 requests，适用于 iOS 内嵌 Python 等无法编译 C 扩展的环境。
 """
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 
 from akshareios.stock_list import stock_info_a_code_name
 from akshareios.stock_hist import stock_zh_a_hist
@@ -25,6 +25,7 @@ from akshareios.stock_tick import (
     stock_zh_a_tick_163,
     stock_zh_a_tick_to_file,
 )
+from akshareios.stock_ann import stock_ann_em, stock_ann_content_em
 
 __all__ = [
     "stock_info_a_code_name",
@@ -44,4 +45,6 @@ __all__ = [
     "stock_zh_a_tick_em",
     "stock_zh_a_tick_163",
     "stock_zh_a_tick_to_file",
+    "stock_ann_em",
+    "stock_ann_content_em",
 ]
