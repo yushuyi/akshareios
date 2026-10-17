@@ -1,5 +1,6 @@
 """数值转换与行数限制工具。"""
 
+import math
 import re
 
 MAX_KLINE_ROWS = 250
@@ -21,10 +22,25 @@ def to_float(value) -> float | None:
 
 
 def to_int(value) -> int | None:
+    """
+    转整数。
+
+    兼容小数字符串：腾讯日 K 成交量返回形如 '31420.00'，直接 int() 会
+    ValueError 导致整列静默丢失（绝味会话 2026-10-10 实录：降级腾讯后
+    成交量/成交额全为 None）。含非零小数时四舍五入——成交量字段理论上
+    恒为整数，小数部分仅为格式噪声。
+    """
     try:
         return int(value)
     except (ValueError, TypeError):
-        return None
+        pass
+    try:
+        number = float(value)
+        if math.isfinite(number):
+            return int(round(number))
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return None
 
 
 def deduplicate_rows_by_date(rows: list[dict], *, date_key: str = "日期") -> list[dict]:

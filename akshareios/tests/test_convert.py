@@ -1,7 +1,27 @@
 #!/usr/bin/env python3
 """_convert 工具函数单元测试（无需联网）"""
 
-from akshareios._convert import apply_row_limit, deduplicate_rows_by_date
+from akshareios._convert import apply_row_limit, deduplicate_rows_by_date, to_int
+
+
+def test_to_int_plain() -> None:
+    assert to_int("31420") == 31420
+    assert to_int(12) == 12
+    assert to_int(12.0) == 12
+
+
+def test_to_int_decimal_string() -> None:
+    # 腾讯日 K 成交量形如 '31420.00'，旧实现 int('31420.00') 直接 None，
+    # 导致降级后的成交量列静默丢失
+    assert to_int("31420.00") == 31420
+    assert to_int("472632158.00") == 472632158
+
+
+def test_to_int_invalid() -> None:
+    assert to_int("") is None
+    assert to_int(None) is None
+    assert to_int({}) is None
+    assert to_int("abc") is None
 
 
 def test_deduplicate_rows_by_date_keeps_last() -> None:
@@ -40,4 +60,7 @@ if __name__ == "__main__":
     test_deduplicate_rows_by_date_keeps_last()
     test_deduplicate_rows_by_date_preserves_order()
     test_apply_row_limit_after_dedup()
+    test_to_int_plain()
+    test_to_int_decimal_string()
+    test_to_int_invalid()
     print("test_convert: 全部通过")
