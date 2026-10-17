@@ -5,7 +5,6 @@
 """
 
 import json
-import math
 from datetime import datetime
 
 import requests
@@ -51,17 +50,23 @@ def tx_daily_hist(
     beg = _fmt_date(start_date)
     end = _fmt_date(end_date)
     end_year = min(int(end[:4]), datetime.now().year)
+    # 回溯硬下界：用户显式 start_date（默认 1970 年），不得静默抬升。
+    floor_year = int(beg[:4])
 
-    # K 线最终受 apply_row_limit 截断（硬上限 250，约 1.2 个交易年度），
-    # 按 limit 回推所需年份即可；默认 start_date=19700101 时旧实现会
-    # 串行请求 50+ 个年度接口（东财断连降级时实测 14s+，设备 120s 超时）。
-    # 每年约 240 个交易日，多留 1 年缓冲停牌与跨年边界。
+    # K 线最终受 apply_row_limit 截断（硬上限 250，约 1.2 个交易年度）。
+    # 自最近年份起、每次 param 覆盖两个日历年，向前自适应回溯：
+    # 活跃标的 1~2 次请求即拿够尾部 250 根（旧实现从 1970 年起串行 50+
+    # 次，东财断连降级时实测 14s+，设备 120s 超时）；退市/长期停牌标的
+    # 近窗口为空时继续逐年向前补取，直到拿够根数或到达 floor_year，
+    # 不会因固定近窗口而零 bar 静默返回。
     need_bars = min(limit if limit and limit > 0 else 250, 250)
-    earliest_year = end_year - math.ceil(need_bars / 200) - 1
-    start_year = max(int(beg[:4]), earliest_year)
 
     rows: list[dict] = []
-    for year in range(start_year, end_year + 1):
+    seen_dates: set[str] = set()
+    year = end_year
+    # year 的 param 覆盖 year..year+1，条件 year+1 >= floor_year 保证
+    # floor_year 当年所在的区间对一定被请求到（步长 2 不重不漏）。
+    while year + 1 >= floor_year:
         params = {
             "_var": f"kline_day{adj}{year}",
             "param": f"{tx_sym},day,{year}-01-01,{year + 1}-12-31,640,{adj}",
@@ -77,12 +82,20 @@ def tx_daily_hist(
         elif adj == "hfq" and "hfqday" in sym_data:
             key = "hfqday"
         bars = sym_data.get(key) or []
+        if not bars and not seen_dates:
+            # 腾讯按结束日期返回尾部最多 640 根、忽略起始日（2026-10 实测：
+            # 2002 年退市的 000003 请求 2026 区间仍返回 1998-2002 的 640 根）。
+            # 首个区间结束日最晚，若仍为零说明该代码无任何行情，更早区间
+            # 结束日更早只会同样为空，无需再回溯（无效代码 29 次空请求
+            # 白等约 2s+）。
+            break
         for bar in bars:
             if len(bar) < 6:
                 continue
             d = str(bar[0])
-            if d < beg or d > end:
+            if d < beg or d > end or d in seen_dates:
                 continue
+            seen_dates.add(d)
             rows.append({
                 "日期": d,
                 "开盘": to_float(bar[1]),
@@ -97,6 +110,9 @@ def tx_daily_hist(
                 "涨跌额": None,
                 "换手率": to_float(bar[7]) if len(bar) > 7 else None,
             })
+        if len(seen_dates) >= need_bars:
+            break
+        year -= 2
 
     rows.sort(key=lambda x: x["日期"])
     rows = deduplicate_rows_by_date(rows)

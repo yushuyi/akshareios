@@ -43,6 +43,22 @@ def _patch_tx(monkeypatch, adj: str, tx_sym: str, bars_by_year: dict) -> list[st
     return requested
 
 
+def _gen_bars(start_day: str, count: int) -> list:
+    """从 start_day 起按工作日生成 count 根标准布局 bar。"""
+    from datetime import date, timedelta
+
+    bars = []
+    d = date.fromisoformat(start_day)
+    while len(bars) < count:
+        if d.weekday() < 5:
+            bars.append([
+                d.isoformat(), "10.00", "10.00", "10.10", "9.90",
+                "100.00", {}, "0.10", "1000.00", "",
+            ])
+        d += timedelta(days=1)
+    return bars
+
+
 def test_tx_daily_hist_field_mapping(monkeypatch) -> None:
     """成交量/成交额/换手率正确解析，振幅涨跌额按相邻 bar 推算。"""
     bars = [
@@ -58,7 +74,7 @@ def test_tx_daily_hist_field_mapping(monkeypatch) -> None:
         start_date="19700101",
         end_date="20500101",
         adjust="qfq",
-        limit=120,
+        limit=2,
         timeout=10,
         is_index=False,
     )
@@ -83,14 +99,15 @@ def test_tx_daily_hist_field_mapping(monkeypatch) -> None:
     assert last["涨跌幅"] == round((10.87 - 10.82) / 10.82 * 100, 2)
     assert last["振幅"] == round((11.02 - 10.70) / 10.82 * 100, 2)
 
-    # 跨年收窄：limit=120 只需近 3 年，不得再从 1970 年起逐个请求
-    assert requested == ["2024-01-01", "2025-01-01", "2026-01-01"]
+    # 首个年度区间已拿够 limit=2 根，立即停止，不向更早年份回溯
+    assert requested == ["2026-01-01"]
 
 
-def test_tx_daily_hist_year_window_250(monkeypatch) -> None:
-    """limit=250（硬上限）也只请求约 3 个年度。"""
-    requested = _patch_tx(monkeypatch, "", "sh603517", {})
-    ftx.tx_daily_hist(
+def test_tx_daily_hist_active_stops_immediately(monkeypatch) -> None:
+    """活跃标的近窗口数据充足，1 次请求即停，不做全历史回溯。"""
+    bars = _gen_bars("2026-01-05", 260)  # 2026 区间即给足 250+ 根
+    requested = _patch_tx(monkeypatch, "", "sh603517", {2026: bars})
+    rows = ftx.tx_daily_hist(
         "603517",
         start_date="19700101",
         end_date="20500101",
@@ -98,26 +115,65 @@ def test_tx_daily_hist_year_window_250(monkeypatch) -> None:
         limit=250,
         timeout=10,
     )
-    years = [p[:4] for p in requested]
-    # limit=250 → ceil(250/200)+1 = 3 年缓冲
-    assert years == ["2023", "2024", "2025", "2026"]
+    assert len(rows) == 250
+    assert requested == ["2026-01-01"]
 
 
-def test_tx_daily_hist_explicit_early_start(monkeypatch) -> None:
-    """显式传入早于窗口的 start_date 时，实际取数仍受 250 根上限保护，
-    年度窗口按 limit 收窄，不做无意义的全历史请求。"""
-    requested = _patch_tx(monkeypatch, "", "sh603517", {})
-    ftx.tx_daily_hist(
+def test_tx_daily_hist_delisted_returns_tail_from_recent_window(monkeypatch) -> None:
+    """退市股：腾讯按结束日返回尾部 640 根（忽略起始日），最近区间即
+    返回退市前数据，不得零 bar，也不需向前回溯。"""
+    # 600432 吉恩镍业 2018-07 退市，请求 2026 区间真实返回 2014-2018 的数据
+    bars = _gen_bars("2018-01-01", 260)
+    requested = _patch_tx(monkeypatch, "", "sh600432", {2026: bars})
+    rows = ftx.tx_daily_hist(
+        "600432",
+        start_date="19700101",
+        end_date="20500101",
+        adjust="",
+        limit=250,
+        timeout=10,
+    )
+    assert requested == ["2026-01-01"]
+    assert len(rows) == 250
+    assert rows[0]["日期"] >= "2018-01-01"
+    assert rows[-1]["日期"] <= "2019-12-31"
+
+
+def test_tx_daily_hist_nonexistent_code_stops_after_first_empty(monkeypatch) -> None:
+    """无效代码首区间即零，不向 1970 年方向做 29 次无意义空请求。"""
+    requested = _patch_tx(monkeypatch, "", "sh999999", {})
+    rows = ftx.tx_daily_hist(
+        "999999",
+        start_date="19700101",
+        end_date="20500101",
+        adjust="",
+        limit=250,
+        timeout=10,
+    )
+    assert rows == []
+    assert requested == ["2026-01-01"]
+
+
+def test_tx_daily_hist_sparse_history_walks_back_to_floor(monkeypatch) -> None:
+    """每个区间数据稀疏、不足 need_bars 时，自近向远回溯到显式
+    start_date 硬下界为止，不被静默抬升，也不越过它继续请求。"""
+    bars_by_year = {year: _gen_bars(f"{year}-01-01", 5)
+                    for year in range(2000, 2027, 2)}
+    requested = _patch_tx(monkeypatch, "", "sh603517", bars_by_year)
+    rows = ftx.tx_daily_hist(
         "603517",
         start_date="20000101",
         end_date="20500101",
         adjust="",
-        limit=60,
+        limit=250,
         timeout=10,
     )
     years = [p[:4] for p in requested]
-    # limit=60 → ceil(60/200)+1 = 2 年缓冲
-    assert years == ["2024", "2025", "2026"]
+    # 从 2026 步长 2 回溯，最后一个区间对必须覆盖 2000 年（2000 覆盖 2000-2001）
+    assert years[0] == "2026"
+    assert years[-1] == "2000"
+    assert "1998" not in years
+    assert len(rows) == 70  # 14 个区间 × 5 根
 
 
 def test_tx_amount_wan_to_yuan() -> None:

@@ -21,17 +21,25 @@ def call_with_fallback(
 ) -> T:
     """
     先调东财；异常时立即重试 primary_retries 次，仍失败或（可选）空结果
-    时走备用源。
+    时走备用源。备用源也失败时，通过 raise from 带出主源根因，便于排查
+    降级链路上的真实首因。
     """
+    last_exc: Exception | None = None
     for _ in range(max(0, primary_retries) + 1):
         try:
             result = primary()
             if retry_on_empty and _is_empty(result):
                 break
             return result
-        except Exception:
+        except Exception as exc:
+            last_exc = exc
             continue
-    return fallback()
+    try:
+        return fallback()
+    except Exception as fallback_exc:
+        if last_exc is not None:
+            raise fallback_exc from last_exc
+        raise
 
 
 def _is_empty(value) -> bool:

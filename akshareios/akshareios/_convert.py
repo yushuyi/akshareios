@@ -23,24 +23,35 @@ def to_float(value) -> float | None:
 
 def to_int(value) -> int | None:
     """
-    转整数。
+    转整数：int 原样返回；float 走 round 并拦截非有限值；字符串先尝试
+    精确整数解析，失败再按小数 round（含小数字符串）。
 
+    字符串必须先走 int()：直接 float('99999999999999999999') 会丢精度。
     兼容小数字符串：腾讯日 K 成交量返回形如 '31420.00'，直接 int() 会
     ValueError 导致整列静默丢失（绝味会话 2026-10-10 实录：降级腾讯后
-    成交量/成交额全为 None）。含非零小数时四舍五入——成交量字段理论上
-    恒为整数，小数部分仅为格式噪声。
+    成交量/成交额全为 None）。非有限（inf/nan）与不可解析值返回 None。
+    round 为半偶舍入（非四舍五入），成交量字段理论上恒为整手 .00，
+    小数部分仅为格式噪声，无实际影响。
     """
-    try:
+    if isinstance(value, bool):
         return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(round(value)) if math.isfinite(value) else None
+
+    text = str(value).strip()
+    try:
+        return int(text)
     except (ValueError, TypeError):
         pass
     try:
-        number = float(value)
-        if math.isfinite(number):
-            return int(round(number))
-    except (ValueError, TypeError, OverflowError):
-        pass
-    return None
+        number = float(text)
+    except (ValueError, TypeError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return int(round(number))
 
 
 def deduplicate_rows_by_date(rows: list[dict], *, date_key: str = "日期") -> list[dict]:

@@ -22,6 +22,18 @@ def test_to_int_invalid() -> None:
     assert to_int(None) is None
     assert to_int({}) is None
     assert to_int("abc") is None
+    # float('inf') 直接 int() 会抛 OverflowError，应统一拦截为 None
+    assert to_int(float("inf")) is None
+    assert to_int("-inf") is None
+    assert to_int("nan") is None
+    assert to_int(float("nan")) is None
+
+
+def test_to_int_float_rounding_consistent() -> None:
+    # float 与字符串入参走同一 round 语义，不再 float 截断/字符串四舍五入不一致
+    assert to_int(3.7) == 4
+    assert to_int("3.7") == 4
+    assert to_int(-3.7) == -4
 
 
 def test_deduplicate_rows_by_date_keeps_last() -> None:
