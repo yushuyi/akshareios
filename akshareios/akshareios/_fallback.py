@@ -5,23 +5,33 @@ from typing import TypeVar
 
 T = TypeVar("T")
 
+# 主源异常时的立即重试次数。东财 push2his 偶发 RemoteDisconnected，
+# urllib3 Retry 依赖连接池的重试机制，在 Pyodide 的 requests shim 下不
+# 生效；设备 2026-09-30 实录组合调用因此 120s 超时。瞬态断连通常立即
+# 重连即可恢复，故不 sleep 直接重试（Pyodide 主线程也不允许 sleep）。
+_PRIMARY_RETRIES = 1
+
 
 def call_with_fallback(
     primary: Callable[[], T],
     fallback: Callable[[], T],
     *,
     retry_on_empty: bool = False,
+    primary_retries: int = _PRIMARY_RETRIES,
 ) -> T:
     """
-    先调东财；异常或（可选）空结果时走备用源。
-  """
-    try:
-        result = primary()
-        if retry_on_empty and _is_empty(result):
-            return fallback()
-        return result
-    except Exception:
-        return fallback()
+    先调东财；异常时立即重试 primary_retries 次，仍失败或（可选）空结果
+    时走备用源。
+    """
+    for _ in range(max(0, primary_retries) + 1):
+        try:
+            result = primary()
+            if retry_on_empty and _is_empty(result):
+                break
+            return result
+        except Exception:
+            continue
+    return fallback()
 
 
 def _is_empty(value) -> bool:
