@@ -7,7 +7,9 @@
 from akshareios._convert import apply_row_limit, deduplicate_rows_by_date, to_float, to_int
 from akshareios._fallback import call_with_fallback
 from akshareios._fallback_tx import tx_daily_hist
-from akshareios._http import get
+from akshareios._http import get_push2his_json
+
+_HIS_KLINE_PATH = "/api/qt/stock/kline/get"
 
 _COMMON_INDEX_SECID = {
     "000001": "1.000001",
@@ -63,7 +65,6 @@ def _index_em(
     period_dict = {"daily": "101", "weekly": "102", "monthly": "103"}
     secid = _resolve_index_secid(symbol, timeout=timeout)
 
-    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "secid": secid,
         "ut": "7eea3edcaed734bea9cbfc24409ed989",
@@ -74,9 +75,8 @@ def _index_em(
         "beg": start_date,
         "end": end_date,
     }
-    r = get(url, params=params, timeout=timeout)
-    r.raise_for_status()
-    klines = (r.json().get("data") or {}).get("klines") or []
+    data = get_push2his_json(_HIS_KLINE_PATH, params, timeout=timeout)
+    klines = (data.get("data") or {}).get("klines") or []
     if not klines:
         return []
 
@@ -136,7 +136,6 @@ def _resolve_index_secid(symbol: str, *, timeout: float) -> str:
 
 
 def _probe_index_secid(secid: str, *, timeout: float) -> bool:
-    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "secid": secid,
         "ut": "7eea3edcaed734bea9cbfc24409ed989",
@@ -148,8 +147,7 @@ def _probe_index_secid(secid: str, *, timeout: float) -> bool:
         "end": "20500000",
     }
     try:
-        r = get(url, params=params, timeout=timeout)
-        r.raise_for_status()
-        return len((r.json().get("data") or {}).get("klines") or []) > 0
+        data = get_push2his_json(_HIS_KLINE_PATH, params, timeout=timeout)
+        return len((data.get("data") or {}).get("klines") or []) > 0
     except Exception:
         return False

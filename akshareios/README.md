@@ -6,15 +6,21 @@ AKShare 轻量 iOS 版 —— 纯 Python 实现的 A 股数据接口，**零 C �
 
 ## 安装
 
-```bash
-pip install akshareios
-```
-
-或从 GitHub 安装最新版：
+包位于本仓库的 `akshareios/` 子目录，从 GitHub 安装：
 
 ```bash
-pip install https://github.com/yushuyi/akshareios/archive/refs/heads/main.zip
+pip install "git+https://github.com/yushuyi/akshareios.git#subdirectory=akshareios"
 ```
+
+或下载 wheel 后本地安装：
+
+```bash
+pip install ./akshareios-0.6.8-py3-none-any.whl
+```
+
+> **注意**：请勿使用 `pip install https://github.com/yushuyi/akshareios/archive/refs/heads/main.zip`。
+> 仓库根目录是 AKShare 上游工程，该命令会安装完整版 AKShare（依赖 pandas/numpy/lxml），
+> 而不是本轻量版；本项目也未发布到 PyPI，`pip install akshareios` 同样无效。
 
 ## 快速开始
 

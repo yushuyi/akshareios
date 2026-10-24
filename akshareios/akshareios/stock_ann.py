@@ -37,6 +37,12 @@ _MAX_PAGES = 20
 # 单次列表返回条数上限，防止 size 误传成超大值导致长时间拉取
 MAX_ANN_ROWS = 500
 
+# 正文分页：东财内容接口按 5000 字符定长切页，响应 page_size 即总页数；
+# 越界 page_index 会钳制返回末页（而非空页），故以「总页数 / 短页 / 重复页」三重终止
+_CONTENT_PAGE_CHARS = 5000
+# 正文翻页防御上限：超长公告也不会无限拉取
+_MAX_CONTENT_PAGES = 200
+
 _DETAIL_URL = "https://data.eastmoney.com/notices/detail/{symbol}/{art_code}.html"
 
 
@@ -165,7 +171,11 @@ def stock_ann_em(
 
 def stock_ann_content_em(symbol: str, art_code: str, *, timeout: float = 15) -> dict:
     """
-    读取单条公告正文（纯文本）。
+    读取单条公告正文（纯文本，自动翻页拼接全文）。
+
+    东财内容接口单页定长 5000 字符，长公告需按 page_index 逐页拉取后拼接；
+    终止条件：响应 page_size（总页数）到达、短页（不足 5000 字符）、
+    或与上一页完全相同（越界钳制探针）。
 
     :param symbol: 6 位股票代码（接口要求同时传入）
     :param art_code: 公告编码，取自 stock_ann_em 返回的"公告编码"
@@ -176,23 +186,45 @@ def stock_ann_content_em(symbol: str, art_code: str, *, timeout: float = 15) -> 
     art_code = str(art_code or "").strip()
     if not art_code:
         raise ValueError("缺少公告编码 art_code，请先用 stock_ann_em 获取")
-    params = {
+    base_params = {
         "art_code": art_code,
         "page_size": "50",
-        "page_index": "1",
         "ann_type": "A",
         "stock_list": symbol,
         "client_source": "web",
         "f_node": "0",
         "s_node": "0",
     }
-    resp = get(CONTENT_API, params=params, timeout=timeout, headers=_ANN_HEADERS)
-    resp.raise_for_status()
-    data = resp.json().get("data") or {}
+    meta: dict = {}
+    chunks: list[str] = []
+    prev_chunk: str | None = None
+    for page in range(1, _MAX_CONTENT_PAGES + 1):
+        params = dict(base_params, page_index=str(page))
+        resp = get(CONTENT_API, params=params, timeout=timeout, headers=_ANN_HEADERS)
+        resp.raise_for_status()
+        data = resp.json().get("data") or {}
+        if page == 1:
+            meta = data
+        content = data.get("notice_content") or ""
+        if not content:
+            break
+        if content == prev_chunk:
+            # 越界钳制：超出总页数时服务端返回末页，与上页重复即停止拼接
+            break
+        chunks.append(content)
+        prev_chunk = content
+        try:
+            total_pages = int(data.get("page_size"))
+        except (TypeError, ValueError):
+            total_pages = 0
+        if total_pages > 0 and page >= total_pages:
+            break
+        if len(content) < _CONTENT_PAGE_CHARS:
+            break
     return {
-        "公告标题": data.get("notice_title") or data.get("title") or "",
-        "公告日期": (data.get("notice_date") or "")[:10],
-        "证券简称": data.get("short_name") or "",
-        "正文": _clean_text(data.get("notice_content")),
-        "附件网址": data.get("attach_url_web") or data.get("attach_url") or "",
+        "公告标题": meta.get("notice_title") or meta.get("title") or "",
+        "公告日期": (meta.get("notice_date") or "")[:10],
+        "证券简称": meta.get("short_name") or "",
+        "正文": _clean_text("".join(chunks)),
+        "附件网址": meta.get("attach_url_web") or meta.get("attach_url") or "",
     }

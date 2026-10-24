@@ -25,8 +25,11 @@ _PUSH2_MAX_FALLBACKS = 3
 
 def _create_session() -> requests.Session:
     session = requests.Session()
+    # 重试预算从紧：单次 get 最坏 2 attempt × timeout + backoff ≈ 32s，
+    # 配合 call_with_fallback 的 primary_retries=1 与降级源仍在终端 120s 预算内；
+    # 原 total=3 时最坏 66s/次，主源重试一遍即 132s 超限（2026-10 实录超时根因）
     retry_strategy = Retry(
-        total=3,
+        total=1,
         backoff_factor=1,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET", "POST"],
@@ -111,3 +114,32 @@ def get_push2_json(path: str, params: dict, timeout: float = 15) -> dict:
     if last_err:
         raise requests.ConnectionError(f"push2 {path} 不可用: {last_err}") from last_err
     raise requests.ConnectionError(f"所有 push2 CDN 节点不可用: {path}")
+
+
+def get_push2his_json(path: str, params: dict, timeout: float = 15) -> dict:
+    """
+    获取东方财富 push2his 接口的 JSON（kline/trends/fflow 等历史数据）。
+
+    主域名失败后最多再试 3 个 CDN 节点；单次请求不重试、单节点超时上限 6s，
+    避免主域瞬时变慢时干等耗尽终端 120s 预算（2026-10 分钟 K 超时根因）。
+    :param path: 接口路径，如 "/api/qt/stock/kline/get"
+    :return: 首个成功节点返回的完整 JSON（含 data 为空的合法响应，交由调用方解析）
+    """
+    per_try = min(timeout, 6)
+    urls = [f"https://push2his.eastmoney.com{path}"]
+    for node in random.sample(_CDN_NODES, _PUSH2_MAX_FALLBACKS):
+        urls.append(f"https://{node}.push2his.eastmoney.com{path}")
+
+    last_err: Exception | None = None
+    for url in urls:
+        try:
+            resp = _plain_session.get(url, params=params, timeout=per_try, headers=_EM_HEADERS)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            last_err = exc
+            continue
+
+    if last_err:
+        raise requests.ConnectionError(f"push2his {path} 不可用: {last_err}") from last_err
+    raise requests.ConnectionError(f"所有 push2his CDN 节点不可用: {path}")

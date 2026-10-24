@@ -186,6 +186,81 @@ def test_content_attach_fallback(monkeypatch) -> None:
     assert info["正文"] == ""
 
 
+# --------------------------------------------------------------- 正文翻页拼接
+
+def test_content_paginates_full_text(monkeypatch) -> None:
+    # 长公告：3 页，前两页满 5000 字符、末页短；按 page_index 逐页拼接全文
+    pages = {1: "甲" * 5000, 2: "乙" * 5000, 3: "丙" * 2878}
+    calls = []
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        p = int(params["page_index"])
+        calls.append(p)
+        return _Resp({"data": {
+            "notice_title": "长期激励计划草案",
+            "notice_date": "2026-06-27 00:00:00",
+            "short_name": "ST绝味",
+            "page_size": 3,
+            "notice_content": pages[p],
+        }})
+
+    monkeypatch.setattr(sa, "get", fake_get)
+    info = sa.stock_ann_content_em("603517", "AN202606261824606440")
+    assert calls == [1, 2, 3]  # 总页数 3，翻满即止
+    assert info["正文"] == "甲" * 5000 + "乙" * 5000 + "丙" * 2878
+    assert len(info["正文"]) == 12878
+    assert info["公告标题"] == "长期激励计划草案"
+
+
+def test_content_stops_on_clamp(monkeypatch) -> None:
+    # 末页恰好 5000 字符且无 page_size：越界页被服务端钳制返回末页，
+    # 与上页内容重复即停止拼接，不会把末页反复并入
+    calls = []
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        p = int(params["page_index"])
+        calls.append(p)
+        content = "甲" * 5000 if p == 1 else "乙" * 5000
+        return _Resp({"data": {"notice_content": content}})
+
+    monkeypatch.setattr(sa, "get", fake_get)
+    info = sa.stock_ann_content_em("603517", "AN003")
+    assert calls == [1, 2, 3]  # 第 3 页钳制返回第 2 页内容，探到重复即止
+    assert info["正文"] == "甲" * 5000 + "乙" * 5000
+
+
+def test_content_stops_on_short_page_without_total(monkeypatch) -> None:
+    # 无 page_size 字段时靠短页（不足 5000 字符）终止
+    calls = []
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        p = int(params["page_index"])
+        calls.append(p)
+        content = "戊" * 5000 if p == 1 else "己" * 100
+        return _Resp({"data": {"notice_content": content}})
+
+    monkeypatch.setattr(sa, "get", fake_get)
+    info = sa.stock_ann_content_em("603517", "AN004")
+    assert calls == [1, 2]
+    assert info["正文"] == "戊" * 5000 + "己" * 100
+
+
+def test_content_page_size_as_string(monkeypatch) -> None:
+    # page_size 为字符串总页数时也能正确终止（容错解析）
+    calls = []
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        p = int(params["page_index"])
+        calls.append(p)
+        content = "庚" * 5000 if p == 1 else "辛" * 5000
+        return _Resp({"data": {"page_size": "2", "notice_content": content}})
+
+    monkeypatch.setattr(sa, "get", fake_get)
+    info = sa.stock_ann_content_em("603517", "AN005")
+    assert calls == [1, 2]
+    assert info["正文"] == "庚" * 5000 + "辛" * 5000
+
+
 def test_clean_text() -> None:
     assert sa._clean_text(None) == ""
     assert sa._clean_text("  只有一行  ") == "只有一行"

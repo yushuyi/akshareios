@@ -9,7 +9,10 @@ from datetime import datetime, timedelta
 from akshareios._convert import apply_row_limit, to_float, to_int
 from akshareios._fallback import call_with_fallback
 from akshareios._fallback_sina import sina_minute_klines
-from akshareios._http import get
+from akshareios._http import get_push2his_json
+
+_HIS_TRENDS_PATH = "/api/qt/stock/trends2/get"
+_HIS_KLINE_PATH = "/api/qt/stock/kline/get"
 
 _DEFAULT_START = "1979-09-01 09:32:00"
 _DEFAULT_END = "2222-01-01 09:32:00"
@@ -91,7 +94,6 @@ def _min_sina_fallback(
 
 
 def _fetch_trends(secid: str, *, timeout: float) -> list[dict]:
-    url = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
     params = {
         "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
@@ -100,9 +102,8 @@ def _fetch_trends(secid: str, *, timeout: float) -> list[dict]:
         "iscr": "0",
         "secid": secid,
     }
-    r = get(url, params=params, timeout=timeout)
-    r.raise_for_status()
-    trends = (r.json().get("data") or {}).get("trends") or []
+    data = get_push2his_json(_HIS_TRENDS_PATH, params, timeout=timeout)
+    trends = (data.get("data") or {}).get("trends") or []
 
     rows = []
     for line in trends:
@@ -134,7 +135,6 @@ def _fetch_minute_klines(
 ) -> list[dict]:
     adjust_map = {"qfq": "1", "hfq": "2", "": "0"}
     beg, end = _minute_beg_end(start_date, end_date, period=period, limit=limit)
-    url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
     params = {
         "fields1": "f1,f2,f3,f4,f5,f6",
         "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
@@ -145,9 +145,8 @@ def _fetch_minute_klines(
         "beg": beg,
         "end": end,
     }
-    r = get(url, params=params, timeout=timeout)
-    r.raise_for_status()
-    klines = (r.json().get("data") or {}).get("klines") or []
+    data = get_push2his_json(_HIS_KLINE_PATH, params, timeout=timeout)
+    klines = (data.get("data") or {}).get("klines") or []
 
     rows = []
     for line in klines:
