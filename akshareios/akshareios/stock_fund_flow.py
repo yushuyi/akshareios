@@ -1,11 +1,14 @@
 """
 资金流向 - 个股资金流历史（主力/超大单/大单/中单/小单净流入）
 
-数据源：东方财富 push2his fflow 接口
+数据源：东方财富 push2his fflow 接口；东财不可用时经 call_with_fallback
+降级新浪历史成交分布（单档口径与东财略有差异，见 _fallback_sina.sina_fund_flow）。
 原版参考：akshare/stock/stock_fund_em.py → stock_individual_fund_flow()
 """
 
 from akshareios._convert import apply_row_limit, ensure_symbol, to_float
+from akshareios._fallback import call_with_fallback
+from akshareios._fallback_sina import sina_fund_flow
 from akshareios._http import get_push2his_json
 
 _FFLOW_PATH = "/api/qt/stock/fflow/daykline/get"
@@ -24,6 +27,7 @@ def stock_individual_fund_flow(
     """
     个股资金流历史（日线，按时间正序）
 
+    东财不可用时自动降级新浪（单档口径略有差异，金额为近似值）。
     :param symbol: 6 位代码
     :param limit: 最多返回条数，默认 120，上限 250；None 或 ≤0 视为全量后截断至 250
     :return: list[dict]，金额单位元、占比单位 %；最新一天为最近已收盘交易日（当日盘中不刷新，收盘后更新）
@@ -31,6 +35,15 @@ def stock_individual_fund_flow(
     symbol = ensure_symbol(symbol)
     if limit is not None and limit <= 0:
         limit = None  # 归一化 ≤0 为全量语义，统一走 250 截断，避免 lmt 负数下发
+    results = call_with_fallback(
+        lambda: _fflow_em(symbol, limit, timeout),
+        lambda: sina_fund_flow(symbol, limit=limit, timeout=timeout),
+    )
+    return apply_row_limit(results, limit)
+
+
+def _fflow_em(symbol: str, limit: int | None, timeout: float) -> list[dict]:
+    """东财 push2his fflow 主源。"""
     market_code = 1 if symbol.startswith("6") else 0
     params = {
         "lmt": str(limit or 0),
@@ -52,4 +65,4 @@ def stock_individual_fund_flow(
         for idx, name in enumerate(_FIELDS):
             row[name] = fields[idx] if name == "日期" else to_float(fields[idx])
         results.append(row)
-    return apply_row_limit(results, limit)
+    return results

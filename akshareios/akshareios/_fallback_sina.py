@@ -23,6 +23,9 @@ _HQ_URL = "https://hq.sinajs.cn/list={symbols}"
 _MINUTE_URL = "https://quotes.sina.cn/cn/api/jsonp_v2.php/=/CN_MarketDataService.getKLineData"
 _SPOT_URL = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
 _HY_URL = "https://vip.stock.finance.sina.com.cn/q/view/newSinaHy.php"
+_FFLOW_URL = (
+    "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/MoneyFlow.ssl_qsfx_lscjfb"
+)
 _COUNT_URL = (
     "http://vip.stock.finance.sina.com.cn/quotes_service/api/"
     "json_v2.php/Market_Center.getHQNodeStockCount?node=hs_a"
@@ -195,3 +198,64 @@ def sina_code_name_page(
         items.append({"code": code, "name": row.get("name")})
 
     return make_page_result(items, page=page, page_size=page_size, total=total)
+
+
+def _net_pct(net: float | None, turnover: float) -> float | None:
+    """净额占成交额百分比；无成交额或无净额时返回 None。"""
+    if net is None or turnover <= 0:
+        return None
+    return round(net / turnover * 100, 2)
+
+
+def sina_fund_flow(symbol: str, *, limit: int | None, timeout: float) -> list[dict]:
+    """
+    新浪历史成交分布降级（lscjfb 接口）—— 个股资金流东财不可用时备用。
+
+    r0~r3 为特大/大/中/小单买入额（四档合计=成交额），r0_net~r3_net 为各档
+    净流入额；「主力」按东财口径取 特大单+大单。新浪的单档划分阈值与东财
+    不完全一致，分档金额为近似值；占比由净额/成交额推算。
+    返回按时间正序，字段与东财主源一致。
+    """
+    params = {
+        "page": "1",
+        "num": str(min(limit or 250, 250)),
+        "sort": "opendate",
+        "asc": "0",
+        "daima": to_market_symbol(symbol),
+    }
+    resp = requests.get(_FFLOW_URL, params=params, headers=_SINA_HEADERS, timeout=timeout)
+    resp.raise_for_status()
+    payload = resp.json()
+    if not isinstance(payload, list):
+        return []
+
+    rows = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        # 四档买入额合计 = 成交额（A 股买卖金额相等）
+        turnover = sum(to_float(item.get(k)) or 0.0 for k in ("r0", "r1", "r2", "r3"))
+        r0_net = to_float(item.get("r0_net"))
+        r1_net = to_float(item.get("r1_net"))
+        r2_net = to_float(item.get("r2_net"))
+        r3_net = to_float(item.get("r3_net"))
+        # 两档均缺失时主力净额应为 None 而非 0，与同行小/中单语义一致
+        main_net = None if r0_net is None and r1_net is None else (r0_net or 0.0) + (r1_net or 0.0)
+        change = to_float(item.get("changeratio"))
+        rows.append({
+            "日期": item.get("opendate"),
+            "主力净流入额": main_net,
+            "小单净流入额": r3_net,
+            "中单净流入额": r2_net,
+            "大单净流入额": r1_net,
+            "超大单净流入额": r0_net,
+            "主力净占比": _net_pct(main_net, turnover),
+            "小单净占比": _net_pct(r3_net, turnover),
+            "中单净占比": _net_pct(r2_net, turnover),
+            "大单净占比": _net_pct(r1_net, turnover),
+            "超大单净占比": _net_pct(r0_net, turnover),
+            "收盘价": to_float(item.get("trade")),
+            "涨跌幅": round(change * 100, 2) if change is not None else None,
+        })
+    rows.reverse()  # 新浪按日期倒序返回，统一为正序
+    return rows
