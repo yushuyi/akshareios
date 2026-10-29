@@ -182,6 +182,39 @@ def test_tx_amount_wan_to_yuan() -> None:
     assert ftx._tx_amount_yuan("") is None
 
 
+# --------------------------------------------------------------- 榜单分页字段映射
+
+def test_tx_spot_page_field_mapping(monkeypatch) -> None:
+    """回归：最新价/涨跌幅必须读 zxj/zdf，旧实现读 pn/speed 全错（2026-10-29 实录）。
+
+    真机抓包：茅台 zxj=1354.00 / zdf=1.75 / zd=23.25；pn=6.74 / speed=0.07 是别的字段。
+    """
+    row = {
+        "code": "sh600519", "name": "贵州茅台",
+        "zxj": "1354.00", "zdf": "1.75", "zd": "23.25",
+        "pn": "6.74", "speed": "0.07",  # 旧实现误读的字段，正确实现不得使用
+        "hsl": "0.34", "ltsz": "16926.10",
+    }
+
+    class _JsonResp:
+        text = ""
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"data": {"rank_list": [row], "total": 1}}
+
+    monkeypatch.setattr(ftx.requests, "get",
+                        lambda url, params=None, timeout=None, headers=None: _JsonResp())
+    result = ftx.tx_spot_page(page=1, page_size=1, timeout=10)
+    it = result["items"][0]
+    assert it["代码"] == "600519"
+    assert it["最新价"] == 1354.00
+    assert it["涨跌幅"] == 1.75
+    assert it["涨跌额"] == 23.25
+    assert it["换手率"] == 0.34
+    assert it["流通市值"] == 16926.10
+
+
 if __name__ == "__main__":
     import sys
     import pytest

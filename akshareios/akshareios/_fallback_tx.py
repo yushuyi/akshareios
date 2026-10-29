@@ -174,14 +174,16 @@ def tx_spot_page(
 
     items = []
     for row in rank_list:
+        # 真机抓包核实（2026-10-29）：最新价=zxj、涨跌幅=zdf、涨跌额=zd；
+        # 旧实现读 pn/speed（含义不明的其他字段），降级数据静默全错。
         code = str(row.get("code", ""))
         plain = code.removeprefix("sh").removeprefix("sz").removeprefix("bj")
         items.append({
             "代码": plain or code,
             "名称": row.get("name"),
-            "最新价": to_float(row.get("pn")),
-            "涨跌幅": to_float(row.get("speed")),
-            "涨跌额": None,
+            "最新价": to_float(row.get("zxj")),
+            "涨跌幅": to_float(row.get("zdf")),
+            "涨跌额": to_float(row.get("zd")),
             "成交量": None,
             "成交额": None,
             "换手率": to_float(row.get("hsl")),
