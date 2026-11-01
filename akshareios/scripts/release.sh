@@ -51,7 +51,15 @@ cp "$WHEEL" "$SKILL_DIR/wheels/"
 # BSD sed 不支持 \?，用整行锚定匹配 version: "x.y.z"
 OLD_VERSION=$(sed -n 's/^version: "\(.*\)"$/\1/p' "$SKILL_DIR/SKILL.md" | head -1)
 if [ -n "$OLD_VERSION" ] && [ "$OLD_VERSION" != "$VERSION" ]; then
-    sed -i '' "s/$OLD_VERSION/$VERSION/g" "$SKILL_DIR/SKILL.md"
+    # 精准替换：只动「随版本变」的四处（frontmatter / wheel 文件名 / < 版本比较 / 验证输出行）。
+    # 禁止全局 s/$OLD/$NEW/g——会把「0.6.13 起」「0.6.6 及更早」等历史版本说明误改
+    # （0.6.14 发版实录：误伤 2 处历史语义，靠人工修回）
+    sed -i '' -E \
+        -e "s/^version: \".*\"/version: \"$VERSION\"/" \
+        -e "s/akshareios-[0-9.]+-py3-none-any\.whl/akshareios-$VERSION-py3-none-any.whl/g" \
+        -e "s/< 0\.[0-9.]+/< $VERSION/g" \
+        -e "s/akshareios [0-9.]+ OK/akshareios $VERSION OK/g" \
+        "$SKILL_DIR/SKILL.md"
     echo "✅ SKILL.md 版本已同步: $OLD_VERSION → $VERSION"
 elif [ -z "$OLD_VERSION" ]; then
     echo "❌ SKILL.md 缺少可解析的 version: 行，未做版本同步"; exit 1
