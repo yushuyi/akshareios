@@ -6,6 +6,10 @@
 → stock_board_industry_name_em() / stock_board_industry_cons_em()
 """
 
+import re
+
+import requests
+
 from akshareios._fallback import call_with_fallback
 from akshareios._fallback_sina import sina_board_industry_page
 from akshareios._http import get_push2_clist
@@ -149,7 +153,15 @@ def stock_board_industry_cons_em(
         "fs": f"b:{board_code} f:!50",
         "fields": ",".join(_CONS_FIELD_MAP.keys()),
     }
-    data_json = get_push2_clist(params, timeout=timeout)
+    try:
+        data_json = get_push2_clist(params, timeout=timeout)
+    except requests.ConnectionError as exc:
+        # 网络 outage 与「BK 代码传错」（data 为空）在 get_push2_clist 里不可区分，
+        # 报错里同时给出两条出路，避免传错代码被引导无效重试
+        raise ValueError(
+            f"成分股查询失败（东财 push2 不可用或 BK 代码无效）：{exc}；"
+            "可先用 stock_board_industry_name_em 确认板块代码，或稍后重试"
+        ) from exc
     data_body = data_json.get("data", {})
     diff = data_body.get("diff", [])
     total = int(data_body.get("total", 0) or 0)
@@ -170,21 +182,22 @@ def stock_board_industry_cons_em(
 
 def _resolve_board_code(symbol: str, *, timeout: float) -> str:
     """板块代码直接返回；板块名称翻板块列表精确匹配（列表最多 ~500 条，5 页内）"""
-    import re
-
-    if re.fullmatch(r"BK\d+", symbol):
-        return symbol
+    if re.fullmatch(r"BK\d+", symbol, re.IGNORECASE):
+        return symbol.upper()
 
     page = 1
     while True:
         result = stock_board_industry_name_em(page=page, page_size=100, timeout=timeout)
+        items = result.get("items", [])
         # 新浪降级源的板块体系与东财成分股不兼容，立刻明示，避免误报「未找到板块」
-        if any("数据源" in item for item in result.get("items", [])):
+        if any("数据源" in item for item in items):
             raise ValueError(
                 "东财 push2 暂不可用（板块列表已降级新浪），无法按名称解析板块："
                 "请直接传东财 BK 代码，或稍后重试"
             )
-        for item in result.get("items", []):
+        if not items and page == 1:
+            raise ValueError("东财与新浪板块列表均暂不可用，无法解析板块，请稍后重试")
+        for item in items:
             if item.get("板块名称") == symbol:
                 return str(item.get("板块代码") or "")
         if not result.get("has_more"):

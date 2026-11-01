@@ -68,6 +68,17 @@ def test_stock_board_industry_name_em() -> None:
     _ok(f"行业板块 items={len(r['items'])} total={r['total']}")
 
 
+def test_stock_board_industry_cons_em() -> None:
+    try:
+        r = ak.stock_board_industry_cons_em(symbol="BK0737", page=1, page_size=5)
+    except Exception as e:
+        _ok(f"板块成分股跳过(仅东财源): {type(e).__name__}")
+        return
+    assert r["items"] and "名称" in r["items"][0]
+    assert r["total"] > 0
+    _ok(f"板块成分股 total={r['total']} 首条={r['items'][0]['名称']}")
+
+
 def test_stock_zt_pool_em() -> None:
     r = ak.stock_zt_pool_em(page=1, page_size=5)
     assert "items" in r
@@ -115,6 +126,7 @@ TESTS = [
     test_stock_zh_a_hist_min_em,
     test_index_zh_a_hist,
     test_stock_board_industry_name_em,
+    test_stock_board_industry_cons_em,
     test_stock_zt_pool_em,
     test_existing_apis,
     test_new_v05_apis,

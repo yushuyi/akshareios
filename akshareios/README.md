@@ -46,6 +46,9 @@ idx = ak.index_zh_a_hist(symbol="000001", start_date="20250101", end_date="20250
 # 行业板块（分页）
 boards = ak.stock_board_industry_name_em(page=1, page_size=20)
 
+# 板块成分股（分页；total 即成分股总数）
+cons = ak.stock_board_industry_cons_em(symbol="软件开发", page=1, page_size=20)
+
 # 涨停股池（分页；非交易日可能为空）
 zt = ak.stock_zt_pool_em(page=1, page_size=20)
 
