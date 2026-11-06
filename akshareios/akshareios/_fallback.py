@@ -3,6 +3,8 @@
 from collections.abc import Callable
 from typing import TypeVar
 
+from akshareios._provenance import Provenance, attach_meta
+
 T = TypeVar("T")
 
 # 主源异常时的立即重试次数。东财 push2his 偶发 RemoteDisconnected，
@@ -18,11 +20,16 @@ def call_with_fallback(
     *,
     retry_on_empty: bool = False,
     primary_retries: int = _PRIMARY_RETRIES,
+    provenance: Provenance | None = None,
 ) -> T:
     """
     先调东财；异常时立即重试 primary_retries 次，仍失败或（可选）空结果
     时走备用源。备用源也失败时，通过 raise from 带出主源根因，便于排查
     降级链路上的真实首因。
+
+    传了 provenance 时，dict 类返回值会带 `_meta` 信封（数据源 / 状态 /
+    数据时间 / 口径说明），降级路径额外列出缺失字段。不传则行为与旧版
+    完全一致，list 类返回值任何情况下都不改结构。
     """
     last_exc: Exception | None = None
     for _ in range(max(0, primary_retries) + 1):
@@ -30,12 +37,13 @@ def call_with_fallback(
             result = primary()
             if retry_on_empty and _is_empty(result):
                 break
-            return result
+            return attach_meta(result, provenance.meta(degraded=False) if provenance else None)
         except Exception as exc:
             last_exc = exc
             continue
     try:
-        return fallback()
+        result = fallback()
+        return attach_meta(result, provenance.meta(degraded=True) if provenance else None)
     except Exception as fallback_exc:
         if last_exc is not None:
             raise fallback_exc from last_exc

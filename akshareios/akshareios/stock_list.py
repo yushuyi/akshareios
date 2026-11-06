@@ -13,6 +13,15 @@ from akshareios._pagination import (
     clamp_page_size,
     make_page_result,
 )
+from akshareios._provenance import Provenance
+
+_LIST_PROVENANCE = Provenance(
+    primary_source="东方财富 push2 clist",
+    fallback_source="新浪财经 A 股列表",
+    freshness="静态代码表（非实时行情，不含价格）",
+    fallback_note="新浪列表按代码升序、忽略主源排序；total 可能取默认估算值 5000，"
+                  "仅用于分页，不代表精确只数。",
+)
 
 
 def stock_info_a_code_name(
@@ -27,6 +36,7 @@ def stock_info_a_code_name(
     return call_with_fallback(
         lambda: _list_em(page=page, page_size=page_size, timeout=timeout),
         lambda: sina_code_name_page(page=page, page_size=page_size, timeout=timeout),
+        provenance=_LIST_PROVENANCE,
     )
 
 

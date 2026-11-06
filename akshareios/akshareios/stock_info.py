@@ -7,6 +7,20 @@
 from akshareios._fallback import call_with_fallback
 from akshareios._fallback_sina import sina_individual_quote
 from akshareios._http import get
+from akshareios._provenance import Provenance
+
+_INFO_PROVENANCE = Provenance(
+    primary_source="东方财富 push2",
+    fallback_source="新浪财经 hq.sinajs.cn",
+    freshness="盘中实时（收盘后为最近收盘价）",
+    fallback_note="新浪只返回实时报价 11 个字段，不含股本/市值/行业/估值/换手率；"
+                  "涨跌幅由最新价与昨收推算，与东财口径可能有小数级差异。"
+                  "若需要市盈率/市净率/总股本，请稍后重试或换用其他接口。",
+    missing_fields=(
+        "总股本", "流通股", "行业", "总市值", "流通市值", "上市时间",
+        "量比", "每股收益", "市盈率", "市净率", "换手率",
+    ),
+)
 
 _FIELD_MAP = {
     "f57": "股票代码",
@@ -44,6 +58,7 @@ def stock_individual_info_em(
         lambda: _info_em(symbol, timeout=timeout),
         lambda: sina_individual_quote(symbol, timeout=timeout),
         retry_on_empty=True,
+        provenance=_INFO_PROVENANCE,
     )
 
 

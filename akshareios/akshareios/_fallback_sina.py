@@ -30,6 +30,10 @@ _COUNT_URL = (
     "http://vip.stock.finance.sina.com.cn/quotes_service/api/"
     "json_v2.php/Market_Center.getHQNodeStockCount?node=hs_a"
 )
+_NODE_COUNT_URL = (
+    "http://vip.stock.finance.sina.com.cn/quotes_service/api/"
+    "json_v2.php/Market_Center.getHQNodeStockCount"
+)
 
 
 def _parse_sina_boards(text: str) -> list[dict]:
@@ -197,6 +201,80 @@ def sina_code_name_page(
         code = str(row.get("code", "")).zfill(6)
         items.append({"code": code, "name": row.get("name")})
 
+    return make_page_result(items, page=page, page_size=page_size, total=total)
+
+
+def _sina_node_count(node: str, *, timeout: float) -> int | None:
+    """行业板块成分股总数；接口对无效 node 返回 []，取不到时由调用方估算。"""
+    try:
+        r = requests.get(
+            _NODE_COUNT_URL, params={"node": node}, timeout=timeout, headers=_SINA_HEADERS
+        )
+        r.raise_for_status()
+        text = r.text.strip().strip('"')
+        return int(text) if text.isdigit() else None
+    except Exception:
+        return None
+
+
+def sina_board_industry_cons_page(
+    node: str, *, page: int, page_size: int, timeout: float
+) -> dict:
+    """
+    新浪行业板块成分股分页 —— 东财 push2 不可用时的降级源。
+
+    node 来自 sina_board_industry_page 的「板块代码」（new_xxx）。字段对齐
+    stock_board_industry_cons_em 主源：新浪 volume 是股 → 换算成手，
+    mktcap/nmc 是万元 → 换算成元；新浪不提供量比，留 None。
+    新浪固定按代码升序，不保证与主源 f3 涨跌幅降序同序。
+    """
+    params = {
+        "page": str(page),
+        "num": str(page_size),
+        "sort": "symbol",
+        "asc": "1",
+        "node": node,
+        "symbol": "",
+        "_s_r_a": "page",
+    }
+    r = requests.get(_SPOT_URL, params=params, timeout=timeout, headers=_SINA_HEADERS)
+    r.raise_for_status()
+    data = r.json()
+    if not isinstance(data, list):
+        data = []
+
+    items = []
+    base_rank = (page - 1) * page_size
+    for idx, row in enumerate(data):
+        if not isinstance(row, dict):
+            continue
+        volume = to_float(row.get("volume"))
+        mktcap = to_float(row.get("mktcap"))
+        nmc = to_float(row.get("nmc"))
+        items.append({
+            "排名": base_rank + idx + 1,
+            "代码": str(row.get("code") or ""),
+            "名称": row.get("name"),
+            "最新价": to_float(row.get("trade")),
+            "涨跌幅": to_float(row.get("changepercent")),
+            "涨跌额": to_float(row.get("pricechange")),
+            "成交量": int(volume / 100) if volume is not None else None,
+            "成交额": to_float(row.get("amount")),
+            "换手率": to_float(row.get("turnoverratio")),
+            "市盈率-动态": to_float(row.get("per")),
+            "量比": None,
+            "最高": to_float(row.get("high")),
+            "最低": to_float(row.get("low")),
+            "今开": to_float(row.get("open")),
+            "昨收": to_float(row.get("settlement")),
+            "总市值": round(mktcap * 10000, 2) if mktcap is not None else None,
+            "流通市值": round(nmc * 10000, 2) if nmc is not None else None,
+        })
+
+    total = _sina_node_count(node, timeout=timeout)
+    if total is None:
+        # 满页说明后面可能还有；给一个够翻页的下界，避免 has_more=false 截断
+        total = (page - 1) * page_size + len(items) + (page_size if len(items) == page_size else 0)
     return make_page_result(items, page=page, page_size=page_size, total=total)
 
 

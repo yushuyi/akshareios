@@ -13,6 +13,22 @@ from akshareios._pagination import (
     clamp_page_size,
     make_page_result,
 )
+from akshareios._provenance import Provenance
+
+_SPOT_PROVENANCE = Provenance(
+    primary_source="东方财富 push2 clist",
+    fallback_source="腾讯证券涨幅榜",
+    freshness="盘中实时（收盘后为最近收盘价）",
+    fallback_note="腾讯榜恒按涨幅降序，忽略 sort_by；成交量/成交额固定为 null"
+                  "（不是「没有成交」，是该源不提供，切勿据此判断量能）；"
+                  "总市值也不提供。流通市值已由腾讯的亿元换算为元，与主源同单位。"
+                  "需要量额或按成交额排序时请稍后重试主源。",
+    missing_fields=(
+        "振幅", "市盈率-动态", "量比", "最高", "最低",
+        "今开", "昨收", "总市值",
+    ),
+    primary_note="成交量单位手、成交额单位元；按 sort_by 排序。",
+)
 
 _FIELD_MAP = {
     "f2": "最新价",
@@ -51,6 +67,7 @@ def stock_zh_a_spot_em(
     return call_with_fallback(
         lambda: _spot_em(page=page, page_size=page_size, sort_by=sort_by, timeout=timeout),
         lambda: tx_spot_page(page=page, page_size=page_size, timeout=timeout),
+        provenance=_SPOT_PROVENANCE,
     )
 
 

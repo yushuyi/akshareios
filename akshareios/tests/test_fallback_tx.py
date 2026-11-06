@@ -212,7 +212,8 @@ def test_tx_spot_page_field_mapping(monkeypatch) -> None:
     assert it["涨跌幅"] == 1.75
     assert it["涨跌额"] == 23.25
     assert it["换手率"] == 0.34
-    assert it["流通市值"] == 16926.10
+    # ltsz 真机单位为亿元，已换算成与主源 f21 一致的元（round(x*1e8, 2)）
+    assert it["流通市值"] == 1692610000000.0
 
 
 if __name__ == "__main__":

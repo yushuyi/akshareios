@@ -128,6 +128,15 @@ def _tx_amount_yuan(value) -> float | None:
     return round(amount * 10000, 2)
 
 
+def _tx_cap_yuan(value) -> float | None:
+    """腾讯榜单 ltsz 单位为亿元（茅台 ~1.7e4），换算成元与东财 f21 对齐。
+
+    不换算时模型会把 16926.10 当成 1.7 万元市值，量级差 1 亿倍。
+    """
+    cap = to_float(value)
+    return round(cap * 1e8, 2) if cap is not None else None
+
+
 def _fill_derived_quote_fields(rows: list[dict]) -> None:
     """
     按相邻 bar 推算腾讯不直接给的涨跌额/涨跌幅/振幅（与东财字段对齐）。
@@ -187,7 +196,7 @@ def tx_spot_page(
             "成交量": None,
             "成交额": None,
             "换手率": to_float(row.get("hsl")),
-            "流通市值": to_float(row.get("ltsz")),
+            "流通市值": _tx_cap_yuan(row.get("ltsz")),
         })
 
     return make_page_result(items, page=page, page_size=page_size, total=total)

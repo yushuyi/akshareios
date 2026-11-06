@@ -115,6 +115,43 @@ def test_fallback_failure_chains_primary_cause() -> None:
     assert isinstance(excinfo.value.__cause__, ConnectionError)
 
 
+def test_provenance_marks_dict_but_not_list() -> None:
+    """传 provenance 时 dict 带 _meta；list 必须保持原结构，避免破坏调用契约。"""
+    from akshareios._provenance import Provenance
+
+    p = Provenance(
+        primary_source="东财", fallback_source="新浪",
+        freshness="盘中实时", fallback_note="字段较少",
+        missing_fields=("市盈率",),
+    )
+
+    def boom():
+        raise ConnectionError("主源不可用")
+
+    r = call_with_fallback(lambda: {"items": [{"a": 1}]}, boom, provenance=p)
+    assert r["_meta"]["状态"] == "主源"
+    assert r["_meta"]["数据源"] == "东财"
+    assert r["_meta"]["数据时间"] == "盘中实时"
+    assert r["items"] == [{"a": 1}]
+
+    r = call_with_fallback(boom, lambda: {"b": 2}, provenance=p)
+    assert r["_meta"]["状态"] == "降级"
+    assert r["_meta"]["数据源"] == "新浪"
+    assert r["_meta"]["口径说明"] == "字段较少"
+    assert r["_meta"]["缺失字段"] == ["市盈率"]
+
+    assert call_with_fallback(boom, lambda: [{"x": 1}], provenance=p) == [{"x": 1}]
+
+
+def test_no_provenance_keeps_legacy_behavior() -> None:
+    """不传 provenance 时返回值与旧版逐字节一致。"""
+    def boom():
+        raise ConnectionError("主源不可用")
+
+    r = call_with_fallback(boom, lambda: {"b": 2})
+    assert r == {"b": 2}
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))

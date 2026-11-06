@@ -15,7 +15,7 @@ pip install "git+https://github.com/yushuyi/akshareios.git#subdirectory=aksharei
 或下载 wheel 后本地安装：
 
 ```bash
-pip install ./akshareios-0.6.8-py3-none-any.whl
+pip install ./akshareios-0.6.14-py3-none-any.whl
 ```
 
 > **注意**：请勿使用 `pip install https://github.com/yushuyi/akshareios/archive/refs/heads/main.zip`。
@@ -96,9 +96,25 @@ fund = ak.stock_individual_fund_flow(symbol="600519", limit=60)
 | 接口数量 | 1000+ | 核心精选 |
 | API 兼容 | - | 函数名保持一致 |
 
-## 数据源
+## 数据源与口径
 
-- 东方财富（EastMoney）：股票列表、K 线、实时行情、个股信息、股东数据、业绩报表、资金流向
+主源东方财富（股票列表、K 线、实时行情、个股信息、股东、业绩、资金流、板块），不可用时自动降级：
+
+| 降级源 | 覆盖接口 |
+|---|---|
+| 腾讯证券 | 日 K 线（仅 daily）、实时行情榜、最近交易日分笔 |
+| 新浪财经 | 分钟 K 线、个股详情、A 股列表、行业板块与成分股、资金流 |
+| 网易财经 | 任意已收盘交易日分笔成交 |
+
+**dict 类返回值**（个股详情、实时榜、板块列表 / 成分股、股票列表）带 `_meta` 信封：
+
+```json
+{"数据源": "...", "状态": "主源|降级", "数据时间": "...", "口径说明": "...", "缺失字段": [...]}
+```
+
+降级时字段会变少、单位与排序可能与主源不同：`stock_zh_a_spot_em` 降级后 `成交量` / `成交额` 恒为 `null`（该源不提供，**不是**「无成交」）；`stock_individual_info_em` 降级后不含股本 / 市值 / 估值字段；板块列表降级后代码是新浪 `new_xxx`，可直接传给 `stock_board_industry_cons_em` 走新浪成分股。调用方应先读 `_meta` 再决定该数值能否用于当前判断。list 类返回值（K 线、资金流、分笔等）保持原有结构，不带 `_meta`。
+
+资金流无论主源还是降级都是 **T-1 收盘后**数据，当日盘中不刷新。
 
 ## License
 
