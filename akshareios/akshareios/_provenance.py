@@ -29,7 +29,9 @@ class Provenance:
     missing_fields: tuple[str, ...] = ()
     primary_note: str = ""
 
-    def meta(self, *, degraded: bool) -> dict[str, Any]:
+    def meta(
+        self, *, degraded: bool, extra: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         meta: dict[str, Any] = {
             "数据源": self.fallback_source if degraded else self.primary_source,
             "状态": "降级" if degraded else "主源",
@@ -40,6 +42,10 @@ class Provenance:
             meta["口径说明"] = note
         if degraded and self.missing_fields:
             meta["缺失字段"] = list(self.missing_fields)
+        # 接口特有的判定结果（交易日 / 空结果原因 / 最新数据日期等）。
+        # 放在统一信封里而不是散落在数据行，模型只需读一处。
+        if extra:
+            meta.update(extra)
         return meta
 
 
